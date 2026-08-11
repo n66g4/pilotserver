@@ -9,6 +9,7 @@ import (
 	"pilotserver/internal/athena"
 	"pilotserver/internal/auth"
 	"pilotserver/internal/config"
+	"pilotserver/internal/ota"
 	"pilotserver/internal/store"
 	"pilotserver/internal/upload"
 )
@@ -35,6 +36,7 @@ func main() {
 	})
 	api.New(st, cfg).Mount(mux)
 	upload.Mount(mux, st, cfg)
+	ota.Mount(mux, cfg)
 	hub := athena.NewHub(cfg)
 	athena.Mount(mux, hub, cfg)
 	adminapi.Mount(mux, st, hub, cfg, adminPasswordHash)
