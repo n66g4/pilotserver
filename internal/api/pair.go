@@ -18,17 +18,24 @@ import (
 const deviceJWTTTL = 24 * time.Hour
 
 type API struct {
-	store     *store.Store
-	jwtSecret string
+	store         *store.Store
+	jwtSecret     string
+	publicBaseURL string
 }
 
 func New(st *store.Store, cfg config.Config) *API {
-	return &API{store: st, jwtSecret: cfg.JWTSecret}
+	return &API{
+		store:         st,
+		jwtSecret:     cfg.JWTSecret,
+		publicBaseURL: cfg.PublicBaseURL,
+	}
 }
 
 func (a *API) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+PairPath, a.pair)
 	mux.HandleFunc("GET "+MePath, a.me)
+	mux.HandleFunc("POST /v1.1/devices/{dongleID}/upload_url/", a.uploadURL)
+	mux.HandleFunc("GET /v1/devices/{dongleID}/routes", a.listRoutes)
 }
 
 func (a *API) pair(w http.ResponseWriter, r *http.Request) {

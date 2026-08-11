@@ -8,17 +8,25 @@ import (
 )
 
 func (a *API) me(w http.ResponseWriter, r *http.Request) {
+	dongleID, ok := a.authenticateDevice(w, r)
+	if !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"dongle_id": dongleID})
+}
+
+func (a *API) authenticateDevice(w http.ResponseWriter, r *http.Request) (string, bool) {
 	parts := strings.Fields(r.Header.Get("Authorization"))
 	if len(parts) != 2 ||
 		(!strings.EqualFold(parts[0], "JWT") && !strings.EqualFold(parts[0], "Bearer")) {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
+		return "", false
 	}
 
 	dongleID, err := auth.ParseDeviceJWT(a.jwtSecret, parts[1])
 	if err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
+		return "", false
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"dongle_id": dongleID})
+	return dongleID, true
 }
