@@ -4,6 +4,7 @@ import (
 	"log"
 	"net/http"
 
+	"pilotserver/internal/adminapi"
 	"pilotserver/internal/api"
 	"pilotserver/internal/athena"
 	"pilotserver/internal/config"
@@ -27,7 +28,9 @@ func main() {
 		_, _ = w.Write([]byte("ok"))
 	})
 	api.New(st, cfg).Mount(mux)
-	athena.Mount(mux, st, athena.NewHub(), cfg)
+	hub := athena.NewHub(cfg)
+	athena.Mount(mux, st, hub, cfg)
+	adminapi.Mount(mux, hub, cfg)
 	log.Printf("listening on %s", cfg.ListenAddr)
 	log.Fatal(http.ListenAndServe(cfg.ListenAddr, mux))
 }

@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"sync"
 	"sync/atomic"
+
+	"pilotserver/internal/config"
 )
 
 var ErrOffline = errors.New("device offline")
@@ -30,10 +32,21 @@ type Hub struct {
 	conns       map[string]hubConn
 	nextID      atomic.Uint64
 	nextSession atomic.Uint64
+
+	tunnelMu     sync.Mutex
+	tunnelConfig config.Config
+	proxyTickets map[string]*proxyBridge
 }
 
-func NewHub() *Hub {
-	return &Hub{conns: make(map[string]hubConn)}
+func NewHub(configs ...config.Config) *Hub {
+	h := &Hub{
+		conns:        make(map[string]hubConn),
+		proxyTickets: make(map[string]*proxyBridge),
+	}
+	if len(configs) > 0 {
+		h.tunnelConfig = configs[0]
+	}
+	return h
 }
 
 func (h *Hub) SetOnline(dongleID string, conn Conn) uint64 {

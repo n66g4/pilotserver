@@ -26,9 +26,13 @@ func (c websocketConn) Close() error {
 }
 
 func Mount(mux *http.ServeMux, st *store.Store, hub *Hub, cfg config.Config) {
+	hub.tunnelMu.Lock()
+	hub.tunnelConfig = cfg
+	hub.tunnelMu.Unlock()
 	mux.HandleFunc("GET /ws/v2/{dongleID}", func(w http.ResponseWriter, r *http.Request) {
 		handleWebSocket(w, r, hub, cfg.JWTSecret)
 	})
+	mux.HandleFunc("GET /ws/proxy/{ticket}", hub.handleProxyWebSocket)
 	mux.HandleFunc("GET /admin/api/devices", func(w http.ResponseWriter, _ *http.Request) {
 		handleDevices(w, st, hub)
 	})
