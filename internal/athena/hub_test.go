@@ -7,7 +7,8 @@ import (
 )
 
 type recordingConn struct {
-	msg []byte
+	msg    []byte
+	closed bool
 }
 
 func (c *recordingConn) Send(msg []byte) error {
@@ -15,18 +16,21 @@ func (c *recordingConn) Send(msg []byte) error {
 	return nil
 }
 
-func (*recordingConn) Close() error { return nil }
+func (c *recordingConn) Close() error {
+	c.closed = true
+	return nil
+}
 
 func TestHubOnlineOffline(t *testing.T) {
 	h := NewHub()
 	if h.IsOnline("d1") {
 		t.Fatal("expected offline")
 	}
-	h.SetOnline("d1", NopConn{})
+	session := h.SetOnline("d1", NopConn{})
 	if !h.IsOnline("d1") {
 		t.Fatal("expected online")
 	}
-	h.SetOffline("d1")
+	h.SetOffline("d1", session)
 	if h.IsOnline("d1") {
 		t.Fatal("expected offline")
 	}
@@ -59,5 +63,28 @@ func TestSendJSONRPCRejectsOfflineDevice(t *testing.T) {
 	_, err := NewHub().SendJSONRPC("d1", "ping", nil)
 	if !errors.Is(err, ErrOffline) {
 		t.Fatalf("error = %v, want %v", err, ErrOffline)
+	}
+}
+
+func TestReplacedConnectionCannotUnregisterCurrentConnection(t *testing.T) {
+	h := NewHub()
+	connA := &recordingConn{}
+	connB := &recordingConn{}
+	sessionA := h.SetOnline("d1", connA)
+	h.SetOnline("d1", connB)
+
+	h.SetOffline("d1", sessionA)
+
+	if !connA.closed {
+		t.Fatal("replaced connection was not closed")
+	}
+	if !h.IsOnline("d1") {
+		t.Fatal("current connection was removed by stale unregister")
+	}
+	if _, err := h.SendJSONRPC("d1", "ping", nil); err != nil {
+		t.Fatalf("SendJSONRPC: %v", err)
+	}
+	if len(connB.msg) == 0 {
+		t.Fatal("message was not sent to current connection")
 	}
 }

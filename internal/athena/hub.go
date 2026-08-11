@@ -20,25 +20,39 @@ type NopConn struct{}
 func (NopConn) Send([]byte) error { return nil }
 func (NopConn) Close() error      { return nil }
 
+type hubConn struct {
+	conn    Conn
+	session uint64
+}
+
 type Hub struct {
-	mu     sync.RWMutex
-	conns  map[string]Conn
-	nextID atomic.Uint64
+	mu          sync.RWMutex
+	conns       map[string]hubConn
+	nextID      atomic.Uint64
+	nextSession atomic.Uint64
 }
 
 func NewHub() *Hub {
-	return &Hub{conns: make(map[string]Conn)}
+	return &Hub{conns: make(map[string]hubConn)}
 }
 
-func (h *Hub) SetOnline(dongleID string, conn Conn) {
+func (h *Hub) SetOnline(dongleID string, conn Conn) uint64 {
+	session := h.nextSession.Add(1)
 	h.mu.Lock()
-	h.conns[dongleID] = conn
+	old, replaced := h.conns[dongleID]
+	h.conns[dongleID] = hubConn{conn: conn, session: session}
 	h.mu.Unlock()
+	if replaced {
+		_ = old.conn.Close()
+	}
+	return session
 }
 
-func (h *Hub) SetOffline(dongleID string) {
+func (h *Hub) SetOffline(dongleID string, session uint64) {
 	h.mu.Lock()
-	delete(h.conns, dongleID)
+	if current, ok := h.conns[dongleID]; ok && current.session == session {
+		delete(h.conns, dongleID)
+	}
 	h.mu.Unlock()
 }
 
@@ -51,7 +65,7 @@ func (h *Hub) IsOnline(dongleID string) bool {
 
 func (h *Hub) SendJSONRPC(dongleID string, method string, params any) (string, error) {
 	h.mu.RLock()
-	conn, ok := h.conns[dongleID]
+	current, ok := h.conns[dongleID]
 	h.mu.RUnlock()
 	if !ok {
 		return "", ErrOffline
@@ -72,7 +86,7 @@ func (h *Hub) SendJSONRPC(dongleID string, method string, params any) (string, e
 	if err != nil {
 		return "", err
 	}
-	if err := conn.Send(msg); err != nil {
+	if err := current.conn.Send(msg); err != nil {
 		return "", err
 	}
 	return id, nil

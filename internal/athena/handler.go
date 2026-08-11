@@ -46,9 +46,9 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, hub *Hub, jwtSecret
 	if err != nil {
 		return
 	}
-	hub.SetOnline(dongleID, websocketConn{conn: conn})
+	session := hub.SetOnline(dongleID, websocketConn{conn: conn})
 	defer func() {
-		hub.SetOffline(dongleID)
+		hub.SetOffline(dongleID, session)
 		conn.CloseNow()
 	}()
 
