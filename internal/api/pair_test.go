@@ -42,7 +42,8 @@ func TestPairAndMe(t *testing.T) {
 		"imei":           "123456789012345",
 		"serial":         "serial-1",
 		"public_key":     publicKey,
-		"register_token": "pairing-token",
+		"register_token": signRegisterToken(t, privateKey, true),
+		"pair_code":      "pairing-token",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -121,7 +122,7 @@ func TestPairAndMe(t *testing.T) {
 	}
 }
 
-func TestPairRejectsWrongRegisterToken(t *testing.T) {
+func TestPairRejectsWrongPairCode(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
@@ -134,10 +135,61 @@ func TestPairRejectsWrongRegisterToken(t *testing.T) {
 	})
 	mux := http.NewServeMux()
 	api.Mount(mux)
-	_, publicKey := testKeyPair(t)
+	privateKey, publicKey := testKeyPair(t)
 	body, err := json.Marshal(map[string]string{
 		"public_key":     publicKey,
-		"register_token": "wrong-token",
+		"register_token": signRegisterToken(t, privateKey, true),
+		"pair_code":      "wrong-token",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, PairPath, bytes.NewReader(body)))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestPairAllowsSignedRegisterJWTWithoutPairingToken(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	api := New(st, config.Config{JWTSecret: "test-secret-at-least-thirty-two-bytes"})
+	mux := http.NewServeMux()
+	api.Mount(mux)
+	privateKey, publicKey := testKeyPair(t)
+	body, err := json.Marshal(map[string]string{
+		"public_key":     publicKey,
+		"register_token": signRegisterToken(t, privateKey, true),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, PairPath, bytes.NewReader(body)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
+	}
+}
+
+func TestPairRejectsJWTWithoutRegisterIntent(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	api := New(st, config.Config{JWTSecret: "test-secret-at-least-thirty-two-bytes"})
+	mux := http.NewServeMux()
+	api.Mount(mux)
+	privateKey, publicKey := testKeyPair(t)
+	body, err := json.Marshal(map[string]string{
+		"public_key":     publicKey,
+		"register_token": signRegisterToken(t, privateKey, false),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -184,4 +236,17 @@ func testKeyPair(t *testing.T) (*rsa.PrivateKey, string) {
 		t.Fatal(err)
 	}
 	return privateKey, string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
+}
+
+func signRegisterToken(t *testing.T, privateKey *rsa.PrivateKey, register bool) string {
+	t.Helper()
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"register": register,
+		"exp":      time.Now().Add(time.Hour).Unix(),
+	})
+	signed, err := token.SignedString(privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signed
 }

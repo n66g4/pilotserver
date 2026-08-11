@@ -17,6 +17,11 @@ type deviceClaims struct {
 	jwt.RegisteredClaims
 }
 
+type registerClaims struct {
+	Register bool `json:"register"`
+	jwt.RegisteredClaims
+}
+
 func IssueDeviceJWT(secret, dongleID string, ttl time.Duration) (string, error) {
 	now := time.Now()
 	claims := deviceClaims{
@@ -85,6 +90,36 @@ func VerifyDeviceJWT(tokenStr string, publicKeyForIdentity func(string) (string,
 		return "", fmt.Errorf("device identity changed during verification")
 	}
 	return verifiedIdentity, nil
+}
+
+func VerifyRegisterJWT(tokenStr, publicKeyPEM string) error {
+	publicKey, err := parseDevicePublicKey(publicKeyPEM)
+	if err != nil {
+		return err
+	}
+	claims := &registerClaims{}
+	token, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (any, error) {
+		switch t.Method {
+		case jwt.SigningMethodRS256:
+			if _, ok := publicKey.(*rsa.PublicKey); !ok {
+				return nil, fmt.Errorf("RSA token requires RSA public key")
+			}
+		case jwt.SigningMethodES256:
+			if _, ok := publicKey.(*ecdsa.PublicKey); !ok {
+				return nil, fmt.Errorf("ECDSA token requires ECDSA public key")
+			}
+		default:
+			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
+		}
+		return publicKey, nil
+	})
+	if err != nil {
+		return fmt.Errorf("parse register jwt: %w", err)
+	}
+	if !token.Valid || !claims.Register {
+		return fmt.Errorf("invalid register jwt")
+	}
+	return nil
 }
 
 func parseDevicePublicKey(publicKeyPEM string) (any, error) {

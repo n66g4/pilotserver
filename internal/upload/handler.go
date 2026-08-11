@@ -33,8 +33,8 @@ func ValidateRelPath(relPath string) error {
 		path.Clean(relPath) != relPath || strings.HasPrefix(relPath, "../") {
 		return fmt.Errorf("invalid upload path")
 	}
-	if len(strings.Split(relPath, "/")) < 3 {
-		return fmt.Errorf("upload path must contain route, segment, and filename")
+	if len(strings.Split(relPath, "/")) < 2 {
+		return fmt.Errorf("upload path must contain segment directory and filename")
 	}
 	return nil
 }
@@ -78,11 +78,19 @@ func (h *Handler) put(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := os.Rename(tempName, target); err != nil {
+		http.Error(w, "commit upload file", http.StatusInternalServerError)
+		return
+	}
 	parts := strings.Split(claim.RelPath, "/")
+	segmentName := parts[0]
+	if len(parts) > 2 {
+		segmentName = parts[1]
+	}
 	if err := h.store.InsertSegment(store.Segment{
 		DongleID:    claim.DongleID,
 		RouteName:   parts[0],
-		SegmentName: parts[1],
+		SegmentName: segmentName,
 		RelPath:     claim.RelPath,
 		Size:        size,
 		UploadedAt:  time.Now().Unix(),
@@ -90,11 +98,7 @@ func (h *Handler) put(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "record upload", http.StatusInternalServerError)
 		return
 	}
-	if err := os.Rename(tempName, target); err != nil {
-		http.Error(w, "commit upload file", http.StatusInternalServerError)
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
+	w.WriteHeader(http.StatusCreated)
 }
 
 func validDongleID(dongleID string) bool {

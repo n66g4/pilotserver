@@ -75,6 +75,17 @@ func TestSignAndVerifyUploadToken(t *testing.T) {
 	}
 }
 
+func TestValidateRelPathAcceptsSegmentDirectoryAndFile(t *testing.T) {
+	if err := upload.ValidateRelPath("2024-01-01--0/qlog.zst"); err != nil {
+		t.Fatalf("valid two-segment path rejected: %v", err)
+	}
+	for _, relPath := range []string{"../qlog.zst", "/tmp/qlog.zst"} {
+		if err := upload.ValidateRelPath(relPath); err == nil {
+			t.Fatalf("unsafe path %q accepted", relPath)
+		}
+	}
+}
+
 func TestUploadURLPutAndListRoutes(t *testing.T) {
 	dataDir := t.TempDir()
 	st, err := store.Open(dataDir)
@@ -133,8 +144,8 @@ func TestUploadURLPutAndListRoutes(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer putResponse.Body.Close()
-	if putResponse.StatusCode != http.StatusNoContent {
-		t.Fatalf("PUT status = %d, want %d", putResponse.StatusCode, http.StatusNoContent)
+	if putResponse.StatusCode != http.StatusCreated {
+		t.Fatalf("PUT status = %d, want %d", putResponse.StatusCode, http.StatusCreated)
 	}
 
 	contents, err := os.ReadFile(filepath.Join(dataDir, "uploads", dongleID, "route-1", "0", "rlog.bz2"))

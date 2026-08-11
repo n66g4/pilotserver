@@ -98,5 +98,19 @@ exit status 0
 - Pairing still returns a short-lived server-issued `access_token` for
   compatibility/testing, but protected device endpoints require a
   device-private-key-signed RS256/ES256 JWT.
-- Existing deployments must set both newly enforced secrets and explicitly
-  opt in before binding pilotserver to a non-loopback interface.
+- Existing deployments must set the required admin/JWT secrets and explicitly
+  opt in before binding pilotserver to a non-loopback interface. The pairing
+  token is optional after the follow-up below.
+
+## P1/P2 merge-blocker follow-up
+
+- Replaced static `register_token` comparison with RS256/ES256 verification
+  against the submitted device public key and required `{"register": true}`.
+  `PILOTSERVER_PAIRING_TOKEN` is now an optional, separate pairing code.
+- Upload validation now accepts native `segmentDir/file` paths while retaining
+  traversal and absolute-path rejection. Successful PUT requests return 201.
+- Atomic rename now completes before route/segment metadata is committed.
+- Added RSA register-JWT, optional pairing-code, two-segment path, and upload
+  success-status regression coverage.
+- Fresh `go test ./...` and
+  `go build -o bin/pilotserver ./cmd/pilotserver` both completed successfully.

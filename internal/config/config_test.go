@@ -24,7 +24,7 @@ func TestLoadDefaults(t *testing.T) {
 	}
 }
 
-func TestLoadRequiresPasswordsAndPairingToken(t *testing.T) {
+func TestLoadRequiresAdminPasswordAndAllowsOptionalPairingToken(t *testing.T) {
 	setRequiredEnv(t)
 	t.Setenv("PILOTSERVER_ADMIN_PASSWORD", "")
 	if _, err := config.Load(); err == nil {
@@ -33,8 +33,8 @@ func TestLoadRequiresPasswordsAndPairingToken(t *testing.T) {
 
 	setRequiredEnv(t)
 	t.Setenv("PILOTSERVER_PAIRING_TOKEN", "")
-	if _, err := config.Load(); err == nil {
-		t.Fatal("missing pairing token accepted")
+	if _, err := config.Load(); err != nil {
+		t.Fatalf("optional pairing token rejected: %v", err)
 	}
 }
 

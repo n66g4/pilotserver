@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"encoding/pem"
+	"log"
 	"net/http"
 	"time"
 
@@ -48,18 +49,31 @@ func (a *API) pair(w http.ResponseWriter, r *http.Request) {
 		Serial        string `json:"serial"`
 		PublicKey     string `json:"public_key"`
 		RegisterToken string `json:"register_token"`
+		PairCode      string `json:"pair_code"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	if request.RegisterToken != a.pairingToken {
-		http.Error(w, "unauthorized", http.StatusUnauthorized)
-		return
-	}
 	if !validDevicePublicKey(request.PublicKey) {
 		http.Error(w, "invalid public_key", http.StatusBadRequest)
 		return
+	}
+	if err := auth.VerifyRegisterJWT(request.RegisterToken, request.PublicKey); err != nil {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if a.pairingToken != "" {
+		pairCode := request.PairCode
+		if pairCode == "" {
+			pairCode = r.Header.Get("X-Pairing-Password")
+		}
+		if pairCode != a.pairingToken {
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
+			return
+		}
+	} else {
+		log.Printf("WARNING: pairing gate disabled; accepting device-signed registration")
 	}
 
 	sum := sha256.Sum256([]byte(request.PublicKey))

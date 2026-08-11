@@ -37,8 +37,8 @@ func Load() (Config, error) {
 	if len(cfg.AdminPassword) < 8 {
 		return cfg, fmt.Errorf("PILOTSERVER_ADMIN_PASSWORD must be >= 8 bytes")
 	}
-	if len(cfg.PairingToken) < 8 {
-		return cfg, fmt.Errorf("PILOTSERVER_PAIRING_TOKEN must be >= 8 bytes")
+	if cfg.PairingToken != "" && len(cfg.PairingToken) < 8 {
+		return cfg, fmt.Errorf("PILOTSERVER_PAIRING_TOKEN must be empty or >= 8 bytes")
 	}
 	host, _, err := net.SplitHostPort(cfg.ListenAddr)
 	if err != nil {

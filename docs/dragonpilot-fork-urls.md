@@ -13,6 +13,16 @@
 
 在 fork 源码中搜索上述常量（常见位置：`common/api.py`、`system/athenad/athenad.py` 或等价模块），将默认值改为自建域名。
 
+## 设备配对
+
+`POST /v2/pilotauth/` 的 `register_token` 是设备私钥签名的注册 JWT，不是服务器静态密码。pilotserver 使用同一请求中的 `public_key` 校验 RS256/ES256 签名，并要求 JWT payload 包含 `"register": true`；这与 openpilot/DragonPilot 的原生注册流程兼容。
+
+`PILOTSERVER_PAIRING_TOKEN` 是可选的独立二次校验：
+
+- 未设置时，签名有效的设备可首次配对，服务端会记录 pairing gate 未启用的警告；适合受控网络内的个人设备。
+- 设置时，设备除 `register_token` 外还必须在 JSON body 的 `pair_code` 或请求头 `X-Pairing-Password` 中提交相同值。
+- 不要把 `PILOTSERVER_PAIRING_TOKEN` 塨入 `register_token`；两者用途不同。
+
 ## 上传
 
 pilotserver 路由：
