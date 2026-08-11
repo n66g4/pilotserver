@@ -14,6 +14,7 @@ import (
 	"pilotserver/internal/ota"
 	"pilotserver/internal/store"
 	"pilotserver/internal/upload"
+	adminweb "pilotserver/web/admin"
 )
 
 func main() {
@@ -36,6 +37,7 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+	mountAdminUI(mux)
 	api.New(st, cfg).Mount(mux)
 	upload.Mount(mux, st, cfg)
 	ota.Mount(mux, cfg)
@@ -46,4 +48,8 @@ func main() {
 	adminapi.Mount(mux, st, hub, cfg, adminPasswordHash)
 	log.Printf("listening on %s", cfg.ListenAddr)
 	log.Fatal(http.ListenAndServe(cfg.ListenAddr, mux))
+}
+
+func mountAdminUI(mux *http.ServeMux) {
+	mux.HandleFunc("GET /admin/", adminweb.ServeHTTP)
 }

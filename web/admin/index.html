@@ -1,0 +1,141 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Pilotserver Admin</title>
+  <style>
+    body { max-width: 900px; margin: 32px auto; padding: 0 16px; font: 16px/1.5 monospace; }
+    input, button { font: inherit; padding: 6px 8px; }
+    table { width: 100%; margin-top: 20px; border-collapse: collapse; }
+    th, td { padding: 8px; border: 1px solid #999; text-align: left; }
+    .online { color: green; }
+    .offline, #message { color: #b00020; }
+    code { user-select: all; }
+  </style>
+</head>
+<body>
+  <h1>Pilotserver Admin</h1>
+
+  <form id="login">
+    <label>管理密码 <input id="password" type="password" required></label>
+    <button type="submit">登录</button>
+  </form>
+
+  <section id="devices" hidden>
+    <button id="refresh" type="button">刷新设备</button>
+    <button id="logout" type="button">退出</button>
+    <p>当前管理 API 不提供行程列表；请使用设备 API 查询。此处仅列出 dongle_id。</p>
+    <table>
+      <thead><tr><th>dongle_id</th><th>状态</th><th>操作 / SSH 命令</th></tr></thead>
+      <tbody id="device-list"></tbody>
+    </table>
+  </section>
+
+  <p id="message"></p>
+
+  <script>
+    const tokenKey = "pilotserver_admin_token";
+    const loginForm = document.querySelector("#login");
+    const devicesSection = document.querySelector("#devices");
+    const deviceList = document.querySelector("#device-list");
+    const message = document.querySelector("#message");
+
+    function setLoggedIn(loggedIn) {
+      loginForm.hidden = loggedIn;
+      devicesSection.hidden = !loggedIn;
+    }
+
+    async function api(path, options = {}) {
+      const token = localStorage.getItem(tokenKey);
+      const response = await fetch(path, {
+        ...options,
+        headers: {
+          ...(options.body ? {"Content-Type": "application/json"} : {}),
+          ...(token ? {Authorization: `Bearer ${token}`} : {})
+        }
+      });
+      if (!response.ok) {
+        if (response.status === 401) {
+          localStorage.removeItem(tokenKey);
+          setLoggedIn(false);
+        }
+        throw new Error((await response.text()).trim() || `HTTP ${response.status}`);
+      }
+      return response.json();
+    }
+
+    async function loadDevices() {
+      message.textContent = "";
+      try {
+        const devices = await api("/admin/api/devices");
+        deviceList.replaceChildren(...devices.map(renderDevice));
+      } catch (error) {
+        message.textContent = `加载失败：${error.message}`;
+      }
+    }
+
+    function renderDevice(device) {
+      const row = document.createElement("tr");
+      const idCell = document.createElement("td");
+      const statusCell = document.createElement("td");
+      const actionCell = document.createElement("td");
+      const button = document.createElement("button");
+
+      idCell.textContent = device.dongle_id;
+      statusCell.textContent = device.online ? "online" : "offline";
+      statusCell.className = device.online ? "online" : "offline";
+      button.textContent = "开 SSH";
+      button.disabled = !device.online;
+      button.addEventListener("click", async () => {
+        button.disabled = true;
+        actionCell.querySelector("code")?.remove();
+        try {
+          const result = await api(`/admin/api/devices/${encodeURIComponent(device.dongle_id)}/ssh`, {
+            method: "POST"
+          });
+          const command = document.createElement("code");
+          command.textContent = ` ssh -p ${result.port} comma@${result.host}`;
+          actionCell.append(command);
+        } catch (error) {
+          message.textContent = `开启 SSH 失败：${error.message}`;
+        } finally {
+          button.disabled = false;
+        }
+      });
+
+      actionCell.append(button);
+      row.append(idCell, statusCell, actionCell);
+      return row;
+    }
+
+    loginForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      message.textContent = "";
+      try {
+        const result = await api("/admin/api/login", {
+          method: "POST",
+          body: JSON.stringify({password: document.querySelector("#password").value})
+        });
+        localStorage.setItem(tokenKey, result.token);
+        setLoggedIn(true);
+        await loadDevices();
+      } catch (error) {
+        message.textContent = `登录失败：${error.message}`;
+      }
+    });
+
+    document.querySelector("#refresh").addEventListener("click", loadDevices);
+    document.querySelector("#logout").addEventListener("click", () => {
+      localStorage.removeItem(tokenKey);
+      setLoggedIn(false);
+      deviceList.replaceChildren();
+    });
+
+    if (localStorage.getItem(tokenKey)) {
+      setLoggedIn(true);
+      loadDevices();
+    }
+  </script>
+</body>
+</html>
