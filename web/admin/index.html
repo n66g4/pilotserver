@@ -85,6 +85,11 @@
       idCell.textContent = device.dongle_id;
       statusCell.textContent = device.online ? "online" : "offline";
       statusCell.className = device.online ? "online" : "offline";
+      const routesLink = document.createElement("a");
+      routesLink.href = `/v1/devices/${encodeURIComponent(device.dongle_id)}/routes`;
+      routesLink.textContent = "routes JSON";
+      routesLink.target = "_blank";
+
       button.textContent = "开 SSH";
       button.disabled = !device.online;
       button.addEventListener("click", async () => {
@@ -95,7 +100,7 @@
             method: "POST"
           });
           const command = document.createElement("code");
-          command.textContent = ` ssh -p ${result.port} comma@${result.host}`;
+          command.textContent = `ssh -p ${result.port} comma@${result.host}`;
           actionCell.append(command);
         } catch (error) {
           message.textContent = `开启 SSH 失败：${error.message}`;
@@ -104,7 +109,7 @@
         }
       });
 
-      actionCell.append(button);
+      actionCell.append(routesLink, " ", button);
       row.append(idCell, statusCell, actionCell);
       return row;
     }
