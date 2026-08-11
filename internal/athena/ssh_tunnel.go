@@ -19,6 +19,7 @@ import (
 )
 
 const sshTunnelTTL = 10 * time.Minute
+const sshRPCResponseTimeout = 2 * time.Second
 
 type proxyBridge struct {
 	ctx      context.Context
@@ -82,7 +83,9 @@ func (h *Hub) OpenSSHTunnel(ctx context.Context, dongleID string) (int, func(), 
 
 	// openpilot also has forks using positional params; the object form matches
 	// athenad.startLocalProxy and keeps the field meanings explicit.
-	_, err = h.SendJSONRPC(dongleID, "startLocalProxy", map[string]any{
+	rpcCtx, cancelRPC := context.WithTimeout(ctx, sshRPCResponseTimeout)
+	defer cancelRPC()
+	err = h.CallJSONRPC(rpcCtx, dongleID, "startLocalProxy", map[string]any{
 		"remote_ws_uri": remoteWSURI,
 		"local_port":    22,
 	})

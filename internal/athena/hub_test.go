@@ -9,10 +9,14 @@ import (
 type recordingConn struct {
 	msg    []byte
 	closed bool
+	onSend func([]byte)
 }
 
 func (c *recordingConn) Send(msg []byte) error {
 	c.msg = msg
+	if c.onSend != nil {
+		c.onSend(msg)
+	}
 	return nil
 }
 

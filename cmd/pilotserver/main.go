@@ -44,7 +44,7 @@ func main() {
 	billing.Mount(mux)
 	maps.Mount(mux)
 	hub := athena.NewHub(cfg)
-	athena.Mount(mux, hub, cfg)
+	athena.Mount(mux, hub, st, cfg)
 	adminapi.Mount(mux, st, hub, cfg, adminPasswordHash)
 	log.Printf("listening on %s", cfg.ListenAddr)
 	log.Fatal(http.ListenAndServe(cfg.ListenAddr, mux))

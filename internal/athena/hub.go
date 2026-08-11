@@ -1,8 +1,10 @@
 package athena
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -32,6 +34,8 @@ type Hub struct {
 	conns       map[string]hubConn
 	nextID      atomic.Uint64
 	nextSession atomic.Uint64
+	pendingMu   sync.Mutex
+	pending     map[string]chan error
 
 	tunnelMu     sync.Mutex
 	tunnelConfig config.Config
@@ -41,6 +45,7 @@ type Hub struct {
 func NewHub(configs ...config.Config) *Hub {
 	h := &Hub{
 		conns:        make(map[string]hubConn),
+		pending:      make(map[string]chan error),
 		proxyTickets: make(map[string]*proxyBridge),
 	}
 	if len(configs) > 0 {
@@ -77,6 +82,25 @@ func (h *Hub) IsOnline(dongleID string) bool {
 }
 
 func (h *Hub) SendJSONRPC(dongleID string, method string, params any) (string, error) {
+	return h.sendJSONRPC(dongleID, method, params, nil)
+}
+
+func (h *Hub) CallJSONRPC(ctx context.Context, dongleID string, method string, params any) error {
+	response := make(chan error, 1)
+	id, err := h.sendJSONRPC(dongleID, method, params, response)
+	if err != nil {
+		return err
+	}
+	defer h.removePending(id)
+	select {
+	case err := <-response:
+		return err
+	case <-ctx.Done():
+		return fmt.Errorf("wait for JSON-RPC response: %w", ctx.Err())
+	}
+}
+
+func (h *Hub) sendJSONRPC(dongleID string, method string, params any, response chan error) (string, error) {
 	h.mu.RLock()
 	current, ok := h.conns[dongleID]
 	h.mu.RUnlock()
@@ -99,8 +123,45 @@ func (h *Hub) SendJSONRPC(dongleID string, method string, params any) (string, e
 	if err != nil {
 		return "", err
 	}
+	if response != nil {
+		h.pendingMu.Lock()
+		h.pending[id] = response
+		h.pendingMu.Unlock()
+	}
 	if err := current.conn.Send(msg); err != nil {
+		h.removePending(id)
 		return "", err
 	}
 	return id, nil
+}
+
+func (h *Hub) HandleJSONRPCResponse(message []byte) {
+	var response struct {
+		ID    string `json:"id"`
+		Error *struct {
+			Code    int    `json:"code"`
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if err := json.Unmarshal(message, &response); err != nil || response.ID == "" {
+		return
+	}
+	h.pendingMu.Lock()
+	waiter := h.pending[response.ID]
+	delete(h.pending, response.ID)
+	h.pendingMu.Unlock()
+	if waiter == nil {
+		return
+	}
+	if response.Error != nil {
+		waiter <- fmt.Errorf("JSON-RPC error %d: %s", response.Error.Code, response.Error.Message)
+		return
+	}
+	waiter <- nil
+}
+
+func (h *Hub) removePending(id string) {
+	h.pendingMu.Lock()
+	delete(h.pending, id)
+	h.pendingMu.Unlock()
 }

@@ -9,6 +9,7 @@ import (
 
 	"pilotserver/internal/auth"
 	"pilotserver/internal/config"
+	"pilotserver/internal/store"
 )
 
 type websocketConn struct {
@@ -23,19 +24,22 @@ func (c websocketConn) Close() error {
 	return c.conn.Close(websocket.StatusNormalClosure, "")
 }
 
-func Mount(mux *http.ServeMux, hub *Hub, cfg config.Config) {
+func Mount(mux *http.ServeMux, hub *Hub, st *store.Store, cfg config.Config) {
 	hub.tunnelMu.Lock()
 	hub.tunnelConfig = cfg
 	hub.tunnelMu.Unlock()
 	mux.HandleFunc("GET /ws/v2/{dongleID}", func(w http.ResponseWriter, r *http.Request) {
-		handleWebSocket(w, r, hub, cfg.JWTSecret)
+		handleWebSocket(w, r, hub, st)
 	})
 	mux.HandleFunc("GET /ws/proxy/{ticket}", hub.handleProxyWebSocket)
 }
 
-func handleWebSocket(w http.ResponseWriter, r *http.Request, hub *Hub, jwtSecret string) {
+func handleWebSocket(w http.ResponseWriter, r *http.Request, hub *Hub, st *store.Store) {
 	dongleID := r.PathValue("dongleID")
-	tokenDongleID, err := auth.ParseDeviceJWT(jwtSecret, tokenFromRequest(r))
+	tokenDongleID, err := auth.VerifyDeviceJWT(tokenFromRequest(r), func(identity string) (string, error) {
+		device, err := st.GetDevice(identity)
+		return device.PublicKeyPEM, err
+	})
 	if err != nil || tokenDongleID != dongleID {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
@@ -52,9 +56,11 @@ func handleWebSocket(w http.ResponseWriter, r *http.Request, hub *Hub, jwtSecret
 	}()
 
 	for {
-		if _, _, err := conn.Read(context.Background()); err != nil {
+		_, message, err := conn.Read(context.Background())
+		if err != nil {
 			return
 		}
+		hub.HandleJSONRPCResponse(message)
 	}
 }
 

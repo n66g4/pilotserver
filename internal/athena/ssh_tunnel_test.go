@@ -25,7 +25,16 @@ func TestOpenSSHTunnelSendsStartLocalProxy(t *testing.T) {
 		SSHTunnelPortMin: 42000,
 		SSHTunnelPortMax: 42099,
 	})
-	conn := &recordingConn{}
+	conn := &recordingConn{onSend: func(message []byte) {
+		var request struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal(message, &request); err != nil {
+			t.Error(err)
+			return
+		}
+		hub.HandleJSONRPCResponse([]byte(`{"jsonrpc":"2.0","id":"` + request.ID + `","result":true}`))
+	}}
 	hub.SetOnline("d1", conn)
 
 	port, cancel, err := hub.OpenSSHTunnel(context.Background(), "d1")

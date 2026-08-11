@@ -25,11 +25,11 @@
   <section id="devices" hidden>
     <button id="refresh" type="button">刷新设备</button>
     <button id="logout" type="button">退出</button>
-    <p>当前管理 API 不提供行程列表；请使用设备 API 查询。此处仅列出 dongle_id。</p>
     <table>
       <thead><tr><th>dongle_id</th><th>状态</th><th>操作 / SSH 命令</th></tr></thead>
       <tbody id="device-list"></tbody>
     </table>
+    <div id="route-browser"></div>
   </section>
 
   <p id="message"></p>
@@ -39,6 +39,7 @@
     const loginForm = document.querySelector("#login");
     const devicesSection = document.querySelector("#devices");
     const deviceList = document.querySelector("#device-list");
+    const routeBrowser = document.querySelector("#route-browser");
     const message = document.querySelector("#message");
 
     function setLoggedIn(loggedIn) {
@@ -85,10 +86,9 @@
       idCell.textContent = device.dongle_id;
       statusCell.textContent = device.online ? "online" : "offline";
       statusCell.className = device.online ? "online" : "offline";
-      const routesLink = document.createElement("a");
-      routesLink.href = `/v1/devices/${encodeURIComponent(device.dongle_id)}/routes`;
-      routesLink.textContent = "routes JSON";
-      routesLink.target = "_blank";
+      const routesButton = document.createElement("button");
+      routesButton.textContent = "浏览行程";
+      routesButton.addEventListener("click", () => loadRoutes(device.dongle_id));
 
       button.textContent = "开 SSH";
       button.disabled = !device.online;
@@ -109,9 +109,73 @@
         }
       });
 
-      actionCell.append(routesLink, " ", button);
+      actionCell.append(routesButton, " ", button);
       row.append(idCell, statusCell, actionCell);
       return row;
+    }
+
+    async function loadRoutes(dongleID) {
+      try {
+        const routes = await api(`/admin/api/devices/${encodeURIComponent(dongleID)}/routes`);
+        routeBrowser.replaceChildren();
+        const heading = document.createElement("h2");
+        heading.textContent = `${dongleID} 行程`;
+        routeBrowser.append(heading);
+        for (const route of routes) {
+          const button = document.createElement("button");
+          button.textContent = route.route;
+          button.addEventListener("click", () => loadSegments(dongleID, route.route));
+          routeBrowser.append(button, " ");
+        }
+      } catch (error) {
+        message.textContent = `加载行程失败：${error.message}`;
+      }
+    }
+
+    async function loadSegments(dongleID, route) {
+      try {
+        const base = `/admin/api/devices/${encodeURIComponent(dongleID)}/routes/${encodeURIComponent(route)}`;
+        const segments = await api(`${base}/segments`);
+        const list = document.createElement("ul");
+        for (const segment of segments) {
+          const item = document.createElement("li");
+          const link = document.createElement("a");
+          const relativePath = segment.path.slice(route.length + 1);
+          link.href = "#";
+          link.textContent = `${segment.path} (${segment.size} bytes)`;
+          link.addEventListener("click", async (event) => {
+            event.preventDefault();
+            try {
+              await download(`${base}/files/${encodePath(relativePath)}`, relativePath.split("/").pop());
+            } catch (error) {
+              message.textContent = `下载失败：${error.message}`;
+            }
+          });
+          item.append(link);
+          list.append(item);
+        }
+        routeBrowser.querySelector("ul")?.remove();
+        routeBrowser.append(list);
+      } catch (error) {
+        message.textContent = `加载文件失败：${error.message}`;
+      }
+    }
+
+    function encodePath(path) {
+      return path.split("/").map(encodeURIComponent).join("/");
+    }
+
+    async function download(path, name) {
+      const response = await fetch(path, {
+        headers: {Authorization: `Bearer ${localStorage.getItem(tokenKey)}`}
+      });
+      if (!response.ok) throw new Error((await response.text()).trim() || `HTTP ${response.status}`);
+      const href = URL.createObjectURL(await response.blob());
+      const link = document.createElement("a");
+      link.href = href;
+      link.download = name;
+      link.click();
+      URL.revokeObjectURL(href);
     }
 
     loginForm.addEventListener("submit", async (event) => {
@@ -135,6 +199,7 @@
       localStorage.removeItem(tokenKey);
       setLoggedIn(false);
       deviceList.replaceChildren();
+      routeBrowser.replaceChildren();
     });
 
     if (localStorage.getItem(tokenKey)) {

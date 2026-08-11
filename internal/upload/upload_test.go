@@ -2,7 +2,12 @@ package upload_test
 
 import (
 	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
 	"encoding/json"
+	"encoding/pem"
+	"errors"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -12,14 +17,27 @@ import (
 	"testing"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
+
 	"pilotserver/internal/api"
-	"pilotserver/internal/auth"
 	"pilotserver/internal/config"
 	"pilotserver/internal/store"
 	"pilotserver/internal/upload"
 )
 
 const testSecret = "test-secret-at-least-thirty-two-bytes"
+
+type failingReader struct {
+	sent bool
+}
+
+func (r *failingReader) Read(p []byte) (int, error) {
+	if !r.sent {
+		r.sent = true
+		return copy(p, "partial"), nil
+	}
+	return 0, errors.New("read failed")
+}
 
 func TestSignAndVerifyUploadToken(t *testing.T) {
 	claim := upload.Claim{
@@ -77,14 +95,11 @@ func TestUploadURLPutAndListRoutes(t *testing.T) {
 	defer server.Close()
 
 	const dongleID = "dongle-1"
-	deviceJWT, err := auth.IssueDeviceJWT(testSecret, dongleID, time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
+	deviceJWT := storeDeviceAndSignJWT(t, st, dongleID)
 
-	requestBody := bytes.NewBufferString(`{"path":"route-1/0/rlog.bz2"}`)
-	request := authorizedRequest(t, http.MethodPost,
-		server.URL+"/v1.1/devices/"+dongleID+"/upload_url/", requestBody, deviceJWT)
+	request := authorizedRequest(t, http.MethodGet,
+		server.URL+"/v1.4/"+dongleID+"/upload_url/?path="+url.QueryEscape("route-1/0/rlog.bz2"),
+		nil, deviceJWT)
 	response, err := http.DefaultClient.Do(request)
 	if err != nil {
 		t.Fatal(err)
@@ -177,10 +192,7 @@ func TestUploadURLRejectsPathTraversal(t *testing.T) {
 	mux := http.NewServeMux()
 	api.New(st, cfg).Mount(mux)
 
-	token, err := auth.IssueDeviceJWT(testSecret, "dongle-1", time.Hour)
-	if err != nil {
-		t.Fatal(err)
-	}
+	token := storeDeviceAndSignJWT(t, st, "dongle-1")
 	request := authorizedRequest(t, http.MethodPost,
 		"/v1.1/devices/dongle-1/upload_url/", bytes.NewBufferString(`{"filename":"../outside"}`), token)
 	response := httptest.NewRecorder()
@@ -188,6 +200,104 @@ func TestUploadURLRejectsPathTraversal(t *testing.T) {
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusBadRequest)
 	}
+}
+
+func TestUploadRejectsOversizedRequest(t *testing.T) {
+	dataDir := t.TempDir()
+	st, err := store.Open(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	cfg := config.Config{DataDir: dataDir, JWTSecret: testSecret}
+	mux := http.NewServeMux()
+	upload.Mount(mux, st, cfg)
+	token, err := upload.Sign(testSecret, upload.Claim{
+		DongleID: "dongle-1",
+		RelPath:  "route-1/0/rlog.bz2",
+		Exp:      time.Now().Add(time.Hour).Unix(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPut, "/upload/put/"+token, bytes.NewReader([]byte("small")))
+	req.ContentLength = upload.MaxUploadSize + 1
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusRequestEntityTooLarge)
+	}
+}
+
+func TestFailedUploadPreservesExistingFile(t *testing.T) {
+	dataDir := t.TempDir()
+	st, err := store.Open(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	cfg := config.Config{DataDir: dataDir, JWTSecret: testSecret}
+	mux := http.NewServeMux()
+	upload.Mount(mux, st, cfg)
+	target := filepath.Join(dataDir, "uploads", "dongle-1", "route-1", "0", "rlog.bz2")
+	if err := os.MkdirAll(filepath.Dir(target), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(target, []byte("good"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	token, err := upload.Sign(testSecret, upload.Claim{
+		DongleID: "dongle-1",
+		RelPath:  "route-1/0/rlog.bz2",
+		Exp:      time.Now().Add(time.Hour).Unix(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodPut, "/upload/put/"+token, &failingReader{})
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+	contents, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(contents) != "good" {
+		t.Fatalf("existing contents = %q", contents)
+	}
+}
+
+func storeDeviceAndSignJWT(t *testing.T, st *store.Store, dongleID string) string {
+	t.Helper()
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicKeyPEM := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})
+	if err := st.UpsertDevice(store.Device{
+		DongleID:     dongleID,
+		PublicKeyPEM: string(publicKeyPEM),
+		CreatedAt:    time.Now().Unix(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"identity": dongleID,
+		"nbf":      time.Now().Add(-time.Minute).Unix(),
+		"iat":      time.Now().Unix(),
+		"exp":      time.Now().Add(time.Hour).Unix(),
+	})
+	signed, err := token.SignedString(privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signed
 }
 
 func authorizedRequest(t *testing.T, method, target string, body *bytes.Buffer, token string) *http.Request {

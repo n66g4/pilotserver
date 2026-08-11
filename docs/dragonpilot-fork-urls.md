@@ -17,6 +17,7 @@
 
 pilotserver 路由：
 
+- `GET /v1.4/{dongleID}/upload_url/?path=...` — DragonPilot/openpilot uploader 兼容入口
 - `POST /v1.1/devices/{dongleID}/upload_url/` — 获取短时签名 URL
 - `PUT /upload/put/{token}` — 设备直传落盘
 
@@ -34,6 +35,12 @@ pilotserver 路由：
 fork 侧 updater / release 检查入口应指向 `https://op.example.com/ota/...`。`version.json` 内 `download_url` 建议使用同一公网域名。详见 [ota.md](ota.md)。
 
 大文件可选由 Nginx 静态 `alias` 托管 `{DataDir}/ota/files/`，元数据仍走 Go。
+
+### fork 必须修改 updater 或 Git remote
+
+phase-1 OTA HTTP 只提供 JSON 元数据和静态产物，不实现 Git 协议。若 fork 的 updater
+仍通过 Git 更新，应把 remote 指向自行托管的 Git 仓库；若要使用上述 HTTP 接口，则
+必须在 fork 中修改 updater 的检查和下载逻辑。未做任一项时，只能人工下载产物。
 
 ## 可选桩接口（第一期）
 

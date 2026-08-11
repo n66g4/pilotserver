@@ -38,3 +38,15 @@
 3. 设备通过 `GET /ota/{channel}/version` 检查更新并下载
 
 不做 GitHub 自动同步；后续可扩展。
+
+## 与 Git updater 的边界
+
+DragonPilot/openpilot 的常见 updater 直接使用 Git remote 拉取提交。上述 phase-1
+HTTP 接口不是 Git smart/dumb HTTP 服务，不能仅通过修改 `API_HOST` 替代 Git remote。
+
+使用方式二选一：
+
+1. fork 修改 updater，使其读取 `/ota/{channel}/version` 并下载发布产物；
+2. 保持原 Git updater，将 fork 仓库托管到可访问的 Git 服务并修改其 remote。
+
+未修改 updater 时，本 HTTP 接口只适合人工下载或托管构建产物，不代表设备会自动更新。

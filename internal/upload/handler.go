@@ -1,6 +1,7 @@
 package upload
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -13,6 +14,8 @@ import (
 	"pilotserver/internal/config"
 	"pilotserver/internal/store"
 )
+
+const MaxUploadSize int64 = 512 << 20
 
 type Handler struct {
 	store     *store.Store
@@ -52,15 +55,25 @@ func (h *Handler) put(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "create upload directory", http.StatusInternalServerError)
 		return
 	}
-	file, err := os.Create(target)
+	if r.ContentLength > MaxUploadSize {
+		http.Error(w, "upload too large", http.StatusRequestEntityTooLarge)
+		return
+	}
+	file, err := os.CreateTemp(filepath.Dir(target), ".upload-*")
 	if err != nil {
 		http.Error(w, "create upload file", http.StatusInternalServerError)
 		return
 	}
-	size, copyErr := io.Copy(file, r.Body)
+	tempName := file.Name()
+	defer os.Remove(tempName)
+	size, copyErr := io.Copy(file, http.MaxBytesReader(w, r.Body, MaxUploadSize))
 	closeErr := file.Close()
 	if copyErr != nil || closeErr != nil {
-		_ = os.Remove(target)
+		var maxBytesErr *http.MaxBytesError
+		if errors.As(copyErr, &maxBytesErr) {
+			http.Error(w, "upload too large", http.StatusRequestEntityTooLarge)
+			return
+		}
 		http.Error(w, "write upload file", http.StatusInternalServerError)
 		return
 	}
@@ -74,8 +87,11 @@ func (h *Handler) put(w http.ResponseWriter, r *http.Request) {
 		Size:        size,
 		UploadedAt:  time.Now().Unix(),
 	}); err != nil {
-		_ = os.Remove(target)
 		http.Error(w, "record upload", http.StatusInternalServerError)
+		return
+	}
+	if err := os.Rename(tempName, target); err != nil {
+		http.Error(w, "commit upload file", http.StatusInternalServerError)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)

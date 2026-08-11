@@ -29,12 +29,12 @@ type Route struct {
 }
 
 type Segment struct {
-	DongleID    string
-	RouteName   string
-	SegmentName string
-	RelPath     string
-	Size        int64
-	UploadedAt  int64
+	DongleID    string `json:"dongle_id"`
+	RouteName   string `json:"route"`
+	SegmentName string `json:"segment"`
+	RelPath     string `json:"path"`
+	Size        int64  `json:"size"`
+	UploadedAt  int64  `json:"uploaded_at"`
 }
 
 func initRoutes(db *sql.DB) error {
@@ -95,4 +95,30 @@ func (s *Store) ListRoutes(dongleID string) ([]Route, error) {
 		routes = append(routes, route)
 	}
 	return routes, rows.Err()
+}
+
+func (s *Store) ListSegments(dongleID, routeName string) ([]Segment, error) {
+	rows, err := s.db.Query(
+		`SELECT dongle_id, route_name, segment_name, rel_path, size, uploaded_at
+		 FROM segments WHERE dongle_id = ? AND route_name = ?
+		 ORDER BY segment_name ASC, rel_path ASC`,
+		dongleID, routeName,
+	)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	segments := make([]Segment, 0)
+	for rows.Next() {
+		var segment Segment
+		if err := rows.Scan(
+			&segment.DongleID, &segment.RouteName, &segment.SegmentName,
+			&segment.RelPath, &segment.Size, &segment.UploadedAt,
+		); err != nil {
+			return nil, err
+		}
+		segments = append(segments, segment)
+	}
+	return segments, rows.Err()
 }

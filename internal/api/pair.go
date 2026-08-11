@@ -1,6 +1,7 @@
 package api
 
 import (
+	"crypto/ecdsa"
 	"crypto/rsa"
 	"crypto/sha256"
 	"crypto/x509"
@@ -20,6 +21,7 @@ const deviceJWTTTL = 24 * time.Hour
 type API struct {
 	store         *store.Store
 	jwtSecret     string
+	pairingToken  string
 	publicBaseURL string
 }
 
@@ -27,6 +29,7 @@ func New(st *store.Store, cfg config.Config) *API {
 	return &API{
 		store:         st,
 		jwtSecret:     cfg.JWTSecret,
+		pairingToken:  cfg.PairingToken,
 		publicBaseURL: cfg.PublicBaseURL,
 	}
 }
@@ -35,6 +38,7 @@ func (a *API) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+PairPath, a.pair)
 	mux.HandleFunc("GET "+MePath, a.me)
 	mux.HandleFunc("POST /v1.1/devices/{dongleID}/upload_url/", a.uploadURL)
+	mux.HandleFunc("GET /v1.4/{dongleID}/upload_url/", a.uploadURL)
 	mux.HandleFunc("GET /v1/devices/{dongleID}/routes", a.listRoutes)
 }
 
@@ -49,7 +53,11 @@ func (a *API) pair(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	if !validRSAPublicKey(request.PublicKey) {
+	if request.RegisterToken != a.pairingToken {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+	if !validDevicePublicKey(request.PublicKey) {
 		http.Error(w, "invalid public_key", http.StatusBadRequest)
 		return
 	}
@@ -76,14 +84,17 @@ func (a *API) pair(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-func validRSAPublicKey(publicKeyPEM string) bool {
+func validDevicePublicKey(publicKeyPEM string) bool {
 	block, _ := pem.Decode([]byte(publicKeyPEM))
 	if block == nil {
 		return false
 	}
 	if key, err := x509.ParsePKIXPublicKey(block.Bytes); err == nil {
-		_, ok := key.(*rsa.PublicKey)
-		return ok
+		switch key.(type) {
+		case *rsa.PublicKey, *ecdsa.PublicKey:
+			return true
+		}
+		return false
 	}
 	_, err := x509.ParsePKCS1PublicKey(block.Bytes)
 	return err == nil

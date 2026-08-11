@@ -5,7 +5,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
+	"time"
 
 	"pilotserver/internal/adminapi"
 	"pilotserver/internal/athena"
@@ -76,5 +79,61 @@ func TestAdminLoginAndList(t *testing.T) {
 	}
 	if len(devices) != 1 || devices[0].DongleID != "d1" || !devices[0].Online {
 		t.Fatalf("devices = %+v", devices)
+	}
+}
+
+func TestAdminListsSegmentsAndDownloadsFile(t *testing.T) {
+	dataDir := t.TempDir()
+	st, err := store.Open(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.InsertSegment(store.Segment{
+		DongleID: "d1", RouteName: "route-1", SegmentName: "0",
+		RelPath: "route-1/0/rlog.bz2", Size: 4, UploadedAt: 1,
+	}); err != nil {
+		t.Fatal(err)
+	}
+	filePath := filepath.Join(dataDir, "uploads", "d1", "route-1", "0", "rlog.bz2")
+	if err := os.MkdirAll(filepath.Dir(filePath), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filePath, []byte("data"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	passwordHash, err := auth.HashPassword("secret")
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{JWTSecret: adminTestSecret, DataDir: dataDir}
+	mux := http.NewServeMux()
+	adminapi.Mount(mux, st, athena.NewHub(), cfg, passwordHash)
+	token, err := auth.IssueAdminJWT(adminTestSecret, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, target := range []string{
+		"/admin/api/devices/d1/routes",
+		"/admin/api/devices/d1/routes/route-1/segments",
+	} {
+		rec := httptest.NewRecorder()
+		req := httptest.NewRequest(http.MethodGet, target, nil)
+		req.Header.Set("Authorization", "Bearer "+token)
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, body = %s", target, rec.Code, rec.Body.String())
+		}
+	}
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet,
+		"/admin/api/devices/d1/routes/route-1/files/0/rlog.bz2", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK || rec.Body.String() != "data" {
+		t.Fatalf("download status = %d, body = %q", rec.Code, rec.Body.String())
 	}
 }

@@ -1,6 +1,10 @@
 package auth
 
 import (
+	"crypto/ecdsa"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"fmt"
 	"time"
 
@@ -8,7 +12,8 @@ import (
 )
 
 type deviceClaims struct {
-	DongleID string `json:"dongle_id"`
+	Identity string `json:"identity"`
+	DongleID string `json:"dongle_id,omitempty"`
 	jwt.RegisteredClaims
 }
 
@@ -29,13 +34,42 @@ func IssueDeviceJWT(secret, dongleID string, ttl time.Duration) (string, error) 
 	return signed, nil
 }
 
-func ParseDeviceJWT(secret, tokenStr string) (string, error) {
+func VerifyDeviceJWT(tokenStr string, publicKeyForIdentity func(string) (string, error)) (string, error) {
 	claims := &deviceClaims{}
+	if _, _, err := new(jwt.Parser).ParseUnverified(tokenStr, claims); err != nil {
+		return "", fmt.Errorf("parse device jwt claims: %w", err)
+	}
+	identity := claims.Identity
+	if identity == "" {
+		identity = claims.DongleID
+	}
+	if identity == "" {
+		return "", fmt.Errorf("missing identity claim")
+	}
+	publicKeyPEM, err := publicKeyForIdentity(identity)
+	if err != nil {
+		return "", fmt.Errorf("load device public key: %w", err)
+	}
+	publicKey, err := parseDevicePublicKey(publicKeyPEM)
+	if err != nil {
+		return "", err
+	}
+
+	claims = &deviceClaims{}
 	token, err := jwt.ParseWithClaims(tokenStr, claims, func(t *jwt.Token) (any, error) {
-		if t.Method != jwt.SigningMethodHS256 {
+		switch t.Method {
+		case jwt.SigningMethodRS256:
+			if _, ok := publicKey.(*rsa.PublicKey); !ok {
+				return nil, fmt.Errorf("RSA token requires RSA public key")
+			}
+		case jwt.SigningMethodES256:
+			if _, ok := publicKey.(*ecdsa.PublicKey); !ok {
+				return nil, fmt.Errorf("ECDSA token requires ECDSA public key")
+			}
+		default:
 			return nil, fmt.Errorf("unexpected signing method: %v", t.Header["alg"])
 		}
-		return []byte(secret), nil
+		return publicKey, nil
 	})
 	if err != nil {
 		return "", fmt.Errorf("parse device jwt: %w", err)
@@ -43,8 +77,31 @@ func ParseDeviceJWT(secret, tokenStr string) (string, error) {
 	if !token.Valid {
 		return "", fmt.Errorf("invalid device jwt")
 	}
-	if claims.DongleID == "" {
-		return "", fmt.Errorf("missing dongle_id claim")
+	verifiedIdentity := claims.Identity
+	if verifiedIdentity == "" {
+		verifiedIdentity = claims.DongleID
 	}
-	return claims.DongleID, nil
+	if verifiedIdentity != identity {
+		return "", fmt.Errorf("device identity changed during verification")
+	}
+	return verifiedIdentity, nil
+}
+
+func parseDevicePublicKey(publicKeyPEM string) (any, error) {
+	block, _ := pem.Decode([]byte(publicKeyPEM))
+	if block == nil {
+		return nil, fmt.Errorf("invalid device public key PEM")
+	}
+	if key, err := x509.ParsePKIXPublicKey(block.Bytes); err == nil {
+		switch key.(type) {
+		case *rsa.PublicKey, *ecdsa.PublicKey:
+			return key, nil
+		default:
+			return nil, fmt.Errorf("unsupported device public key type")
+		}
+	}
+	if key, err := x509.ParsePKCS1PublicKey(block.Bytes); err == nil {
+		return key, nil
+	}
+	return nil, fmt.Errorf("invalid device public key")
 }

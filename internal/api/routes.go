@@ -21,17 +21,20 @@ func (a *API) uploadURL(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var request struct {
-		Path     string `json:"path"`
-		Filename string `json:"filename"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-		http.Error(w, "invalid request body", http.StatusBadRequest)
-		return
-	}
-	relPath := request.Path
-	if relPath == "" {
-		relPath = request.Filename
+	relPath := r.URL.Query().Get("path")
+	if r.Method == http.MethodPost {
+		var request struct {
+			Path     string `json:"path"`
+			Filename string `json:"filename"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			http.Error(w, "invalid request body", http.StatusBadRequest)
+			return
+		}
+		relPath = request.Path
+		if relPath == "" {
+			relPath = request.Filename
+		}
 	}
 	if err := upload.ValidateRelPath(relPath); err != nil {
 		http.Error(w, "invalid upload path", http.StatusBadRequest)

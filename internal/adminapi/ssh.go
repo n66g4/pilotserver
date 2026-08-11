@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"net/url"
+	"time"
 
 	"pilotserver/internal/athena"
 	"pilotserver/internal/config"
@@ -26,6 +28,8 @@ func handleOpenSSH(w http.ResponseWriter, r *http.Request, hub *athena.Hub, cfg 
 		http.Error(w, "open SSH tunnel", http.StatusInternalServerError)
 		return
 	}
+	log.Printf("admin SSH tunnel opened dongle=%s port=%d time=%s",
+		r.PathValue("dongleID"), port, time.Now().UTC().Format(time.RFC3339))
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(struct {

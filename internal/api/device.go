@@ -23,7 +23,10 @@ func (a *API) authenticateDevice(w http.ResponseWriter, r *http.Request) (string
 		return "", false
 	}
 
-	dongleID, err := auth.ParseDeviceJWT(a.jwtSecret, parts[1])
+	dongleID, err := auth.VerifyDeviceJWT(parts[1], func(identity string) (string, error) {
+		device, err := a.store.GetDevice(identity)
+		return device.PublicKeyPEM, err
+	})
 	if err != nil {
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return "", false

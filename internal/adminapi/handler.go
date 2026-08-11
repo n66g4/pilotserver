@@ -25,6 +25,15 @@ func Mount(mux *http.ServeMux, st *store.Store, hub *athena.Hub, cfg config.Conf
 	adminMux.HandleFunc("POST /admin/api/devices/{dongleID}/ssh", func(w http.ResponseWriter, r *http.Request) {
 		handleOpenSSH(w, r, hub, cfg)
 	})
+	adminMux.HandleFunc("GET /admin/api/devices/{dongleID}/routes", func(w http.ResponseWriter, r *http.Request) {
+		handleRoutes(w, r, st)
+	})
+	adminMux.HandleFunc("GET /admin/api/devices/{dongleID}/routes/{route}/segments", func(w http.ResponseWriter, r *http.Request) {
+		handleSegments(w, r, st)
+	})
+	adminMux.HandleFunc("GET /admin/api/devices/{dongleID}/routes/{route}/files/{path...}", func(w http.ResponseWriter, r *http.Request) {
+		handleDownload(w, r, cfg.DataDir)
+	})
 	mux.Handle("/admin/api/", requireAdmin(cfg.JWTSecret, adminMux))
 }
 

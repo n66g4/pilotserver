@@ -13,6 +13,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 
 	"pilotserver/internal/config"
 	"pilotserver/internal/store"
@@ -25,18 +28,21 @@ func TestPairAndMe(t *testing.T) {
 	}
 	defer st.Close()
 
-	api := New(st, config.Config{JWTSecret: "test-secret-at-least-thirty-two-bytes"})
+	api := New(st, config.Config{
+		JWTSecret:    "test-secret-at-least-thirty-two-bytes",
+		PairingToken: "pairing-token",
+	})
 	mux := http.NewServeMux()
 	api.Mount(mux)
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	publicKey := testPublicKeyPEM(t)
+	privateKey, publicKey := testKeyPair(t)
 	body, err := json.Marshal(map[string]string{
 		"imei":           "123456789012345",
 		"serial":         "serial-1",
 		"public_key":     publicKey,
-		"register_token": "ignored",
+		"register_token": "pairing-token",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -74,6 +80,16 @@ func TestPairAndMe(t *testing.T) {
 	if device.PublicKeyPEM != publicKey {
 		t.Fatal("stored public key does not match request")
 	}
+	deviceToken := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"identity": pair.DongleID,
+		"nbf":      time.Now().Add(-time.Minute).Unix(),
+		"iat":      time.Now().Unix(),
+		"exp":      time.Now().Add(time.Hour).Unix(),
+	})
+	signedDeviceToken, err := deviceToken.SignedString(privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
 
 	for _, scheme := range []string{"JWT", "Bearer"} {
 		t.Run(scheme, func(t *testing.T) {
@@ -81,7 +97,7 @@ func TestPairAndMe(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			req.Header.Set("Authorization", fmt.Sprintf("%s %s", scheme, pair.AccessToken))
+			req.Header.Set("Authorization", fmt.Sprintf("%s %s", scheme, signedDeviceToken))
 
 			meResp, err := http.DefaultClient.Do(req)
 			if err != nil {
@@ -105,6 +121,34 @@ func TestPairAndMe(t *testing.T) {
 	}
 }
 
+func TestPairRejectsWrongRegisterToken(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	api := New(st, config.Config{
+		JWTSecret:    "test-secret-at-least-thirty-two-bytes",
+		PairingToken: "pairing-token",
+	})
+	mux := http.NewServeMux()
+	api.Mount(mux)
+	_, publicKey := testKeyPair(t)
+	body, err := json.Marshal(map[string]string{
+		"public_key":     publicKey,
+		"register_token": "wrong-token",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodPost, PairPath, bytes.NewReader(body)))
+	if rec.Code != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
 func TestPairRejectsInvalidPublicKey(t *testing.T) {
 	st, err := store.Open(t.TempDir())
 	if err != nil {
@@ -112,11 +156,14 @@ func TestPairRejectsInvalidPublicKey(t *testing.T) {
 	}
 	defer st.Close()
 
-	api := New(st, config.Config{JWTSecret: "test-secret-at-least-thirty-two-bytes"})
+	api := New(st, config.Config{
+		JWTSecret:    "test-secret-at-least-thirty-two-bytes",
+		PairingToken: "pairing-token",
+	})
 	mux := http.NewServeMux()
 	api.Mount(mux)
 
-	body := []byte(`{"imei":"123","serial":"serial-1","public_key":"not pem"}`)
+	body := []byte(`{"imei":"123","serial":"serial-1","public_key":"not pem","register_token":"pairing-token"}`)
 	req := httptest.NewRequest(http.MethodPost, PairPath, bytes.NewReader(body))
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
@@ -126,9 +173,9 @@ func TestPairRejectsInvalidPublicKey(t *testing.T) {
 	}
 }
 
-func testPublicKeyPEM(t *testing.T) string {
+func testKeyPair(t *testing.T) (*rsa.PrivateKey, string) {
 	t.Helper()
-	privateKey, err := rsa.GenerateKey(rand.Reader, 1024)
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -136,5 +183,5 @@ func testPublicKeyPEM(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
+	return privateKey, string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
 }

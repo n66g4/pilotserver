@@ -2,6 +2,10 @@ package athena
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/x509"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -9,9 +13,10 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/golang-jwt/jwt/v5"
 
-	"pilotserver/internal/auth"
 	"pilotserver/internal/config"
+	"pilotserver/internal/store"
 )
 
 const testSecret = "test-secret-at-least-thirty-two-bytes"
@@ -40,15 +45,13 @@ func TestTokenFromRequestOrder(t *testing.T) {
 
 func TestWebSocketTracksOnlineState(t *testing.T) {
 	hub := NewHub()
+	st, token := testDeviceToken(t, "d1")
+	defer st.Close()
 	mux := http.NewServeMux()
-	Mount(mux, hub, config.Config{JWTSecret: testSecret})
+	Mount(mux, hub, st, config.Config{JWTSecret: testSecret})
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
-	token, err := auth.IssueDeviceJWT(testSecret, "d1", time.Minute)
-	if err != nil {
-		t.Fatal(err)
-	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
 	conn, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/ws/v2/d1?access_token="+token, nil)
@@ -64,18 +67,49 @@ func TestWebSocketTracksOnlineState(t *testing.T) {
 }
 
 func TestWebSocketRejectsMismatchedDevice(t *testing.T) {
-	token, err := auth.IssueDeviceJWT(testSecret, "other", time.Minute)
-	if err != nil {
-		t.Fatal(err)
-	}
+	st, token := testDeviceToken(t, "other")
+	defer st.Close()
 	mux := http.NewServeMux()
-	Mount(mux, NewHub(), config.Config{JWTSecret: testSecret})
+	Mount(mux, NewHub(), st, config.Config{JWTSecret: testSecret})
 	req := httptest.NewRequest(http.MethodGet, "/ws/v2/d1?access_token="+token, nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
 	}
+}
+
+func testDeviceToken(t *testing.T, dongleID string) (*store.Store, string) {
+	t.Helper()
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	publicKey := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})
+	if err := st.UpsertDevice(store.Device{
+		DongleID: dongleID, PublicKeyPEM: string(publicKey), CreatedAt: time.Now().Unix(),
+	}); err != nil {
+		t.Fatal(err)
+	}
+	token := jwt.NewWithClaims(jwt.SigningMethodRS256, jwt.MapClaims{
+		"identity": dongleID,
+		"nbf":      time.Now().Add(-time.Minute).Unix(),
+		"iat":      time.Now().Unix(),
+		"exp":      time.Now().Add(time.Minute).Unix(),
+	})
+	signed, err := token.SignedString(privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return st, signed
 }
 
 func waitFor(t *testing.T, condition func() bool) {
