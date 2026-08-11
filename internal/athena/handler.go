@@ -2,7 +2,6 @@ package athena
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"strings"
 
@@ -10,7 +9,6 @@ import (
 
 	"pilotserver/internal/auth"
 	"pilotserver/internal/config"
-	"pilotserver/internal/store"
 )
 
 type websocketConn struct {
@@ -25,7 +23,7 @@ func (c websocketConn) Close() error {
 	return c.conn.Close(websocket.StatusNormalClosure, "")
 }
 
-func Mount(mux *http.ServeMux, st *store.Store, hub *Hub, cfg config.Config) {
+func Mount(mux *http.ServeMux, hub *Hub, cfg config.Config) {
 	hub.tunnelMu.Lock()
 	hub.tunnelConfig = cfg
 	hub.tunnelMu.Unlock()
@@ -33,9 +31,6 @@ func Mount(mux *http.ServeMux, st *store.Store, hub *Hub, cfg config.Config) {
 		handleWebSocket(w, r, hub, cfg.JWTSecret)
 	})
 	mux.HandleFunc("GET /ws/proxy/{ticket}", hub.handleProxyWebSocket)
-	mux.HandleFunc("GET /admin/api/devices", func(w http.ResponseWriter, _ *http.Request) {
-		handleDevices(w, st, hub)
-	})
 }
 
 func handleWebSocket(w http.ResponseWriter, r *http.Request, hub *Hub, jwtSecret string) {
@@ -76,28 +71,4 @@ func tokenFromRequest(r *http.Request) string {
 		return parts[1]
 	}
 	return ""
-}
-
-func handleDevices(w http.ResponseWriter, st *store.Store, hub *Hub) {
-	devices, err := st.ListDevices()
-	if err != nil {
-		http.Error(w, "list devices", http.StatusInternalServerError)
-		return
-	}
-	response := make([]struct {
-		DongleID string `json:"dongle_id"`
-		Online   bool   `json:"online"`
-	}, 0, len(devices))
-	for _, device := range devices {
-		response = append(response, struct {
-			DongleID string `json:"dongle_id"`
-			Online   bool   `json:"online"`
-		}{
-			DongleID: device.DongleID,
-			Online:   hub.IsOnline(device.DongleID),
-		})
-	}
-
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(response)
 }

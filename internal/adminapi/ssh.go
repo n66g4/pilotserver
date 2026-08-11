@@ -11,12 +11,6 @@ import (
 	"pilotserver/internal/config"
 )
 
-func Mount(mux *http.ServeMux, hub *athena.Hub, cfg config.Config) {
-	mux.HandleFunc("POST /admin/api/devices/{dongleID}/ssh", func(w http.ResponseWriter, r *http.Request) {
-		handleOpenSSH(w, r, hub, cfg)
-	})
-}
-
 func handleOpenSSH(w http.ResponseWriter, r *http.Request, hub *athena.Hub, cfg config.Config) {
 	base, err := url.Parse(cfg.PublicBaseURL)
 	if err != nil || base.Hostname() == "" {

@@ -2,7 +2,6 @@ package athena
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -13,7 +12,6 @@ import (
 
 	"pilotserver/internal/auth"
 	"pilotserver/internal/config"
-	"pilotserver/internal/store"
 )
 
 const testSecret = "test-secret-at-least-thirty-two-bytes"
@@ -41,15 +39,9 @@ func TestTokenFromRequestOrder(t *testing.T) {
 }
 
 func TestWebSocketTracksOnlineState(t *testing.T) {
-	st, err := store.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-
 	hub := NewHub()
 	mux := http.NewServeMux()
-	Mount(mux, st, hub, config.Config{JWTSecret: testSecret})
+	Mount(mux, hub, config.Config{JWTSecret: testSecret})
 	server := httptest.NewServer(mux)
 	defer server.Close()
 
@@ -72,55 +64,17 @@ func TestWebSocketTracksOnlineState(t *testing.T) {
 }
 
 func TestWebSocketRejectsMismatchedDevice(t *testing.T) {
-	st, err := store.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-
 	token, err := auth.IssueDeviceJWT(testSecret, "other", time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
 	mux := http.NewServeMux()
-	Mount(mux, st, NewHub(), config.Config{JWTSecret: testSecret})
+	Mount(mux, NewHub(), config.Config{JWTSecret: testSecret})
 	req := httptest.NewRequest(http.MethodGet, "/ws/v2/d1?access_token="+token, nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
-	}
-}
-
-func TestAdminDevicesIncludesOnlineState(t *testing.T) {
-	st, err := store.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer st.Close()
-	if err := st.UpsertDevice(store.Device{DongleID: "d1", CreatedAt: 1}); err != nil {
-		t.Fatal(err)
-	}
-
-	hub := NewHub()
-	hub.SetOnline("d1", NopConn{})
-	mux := http.NewServeMux()
-	Mount(mux, st, hub, config.Config{JWTSecret: testSecret})
-	rec := httptest.NewRecorder()
-	mux.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/admin/api/devices", nil))
-
-	if rec.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusOK)
-	}
-	var got []struct {
-		DongleID string `json:"dongle_id"`
-		Online   bool   `json:"online"`
-	}
-	if err := json.NewDecoder(rec.Body).Decode(&got); err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 1 || got[0].DongleID != "d1" || !got[0].Online {
-		t.Fatalf("devices = %+v", got)
 	}
 }
 
