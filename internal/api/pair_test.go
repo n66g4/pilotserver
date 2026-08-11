@@ -1,0 +1,140 @@
+package api
+
+import (
+	"bytes"
+	"crypto/rand"
+	"crypto/rsa"
+	"crypto/sha256"
+	"crypto/x509"
+	"encoding/hex"
+	"encoding/json"
+	"encoding/pem"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
+	"testing"
+
+	"pilotserver/internal/config"
+	"pilotserver/internal/store"
+)
+
+func TestPairAndMe(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	api := New(st, config.Config{JWTSecret: "test-secret-at-least-thirty-two-bytes"})
+	mux := http.NewServeMux()
+	api.Mount(mux)
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	publicKey := testPublicKeyPEM(t)
+	body, err := json.Marshal(map[string]string{
+		"imei":           "123456789012345",
+		"serial":         "serial-1",
+		"public_key":     publicKey,
+		"register_token": "ignored",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := http.Post(server.URL+PairPath, "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("pair status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+
+	var pair struct {
+		DongleID    string `json:"dongle_id"`
+		AccessToken string `json:"access_token"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&pair); err != nil {
+		t.Fatal(err)
+	}
+	if pair.DongleID == "" || pair.AccessToken == "" {
+		t.Fatalf("pair response missing fields: %+v", pair)
+	}
+	sum := sha256.Sum256([]byte(publicKey))
+	wantDongleID := hex.EncodeToString(sum[:])[:16]
+	if pair.DongleID != wantDongleID {
+		t.Fatalf("dongle_id = %q, want %q", pair.DongleID, wantDongleID)
+	}
+
+	device, err := st.GetDevice(pair.DongleID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if device.PublicKeyPEM != publicKey {
+		t.Fatal("stored public key does not match request")
+	}
+
+	for _, scheme := range []string{"JWT", "Bearer"} {
+		t.Run(scheme, func(t *testing.T) {
+			req, err := http.NewRequest(http.MethodGet, server.URL+MePath, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			req.Header.Set("Authorization", fmt.Sprintf("%s %s", scheme, pair.AccessToken))
+
+			meResp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer meResp.Body.Close()
+			if meResp.StatusCode != http.StatusOK {
+				t.Fatalf("me status = %d, want %d", meResp.StatusCode, http.StatusOK)
+			}
+
+			var me struct {
+				DongleID string `json:"dongle_id"`
+			}
+			if err := json.NewDecoder(meResp.Body).Decode(&me); err != nil {
+				t.Fatal(err)
+			}
+			if me.DongleID != pair.DongleID {
+				t.Fatalf("dongle_id = %q, want %q", me.DongleID, pair.DongleID)
+			}
+		})
+	}
+}
+
+func TestPairRejectsInvalidPublicKey(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	api := New(st, config.Config{JWTSecret: "test-secret-at-least-thirty-two-bytes"})
+	mux := http.NewServeMux()
+	api.Mount(mux)
+
+	body := []byte(`{"imei":"123","serial":"serial-1","public_key":"not pem"}`)
+	req := httptest.NewRequest(http.MethodPost, PairPath, bytes.NewReader(body))
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
+
+func testPublicKeyPEM(t *testing.T) string {
+	t.Helper()
+	privateKey, err := rsa.GenerateKey(rand.Reader, 1024)
+	if err != nil {
+		t.Fatal(err)
+	}
+	der, err := x509.MarshalPKIXPublicKey(&privateKey.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der}))
+}

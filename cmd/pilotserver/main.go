@@ -4,7 +4,9 @@ import (
 	"log"
 	"net/http"
 
+	"pilotserver/internal/api"
 	"pilotserver/internal/config"
+	"pilotserver/internal/store"
 )
 
 func main() {
@@ -12,11 +14,18 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	st, err := store.Open(cfg.DataDir)
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer st.Close()
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("ok"))
 	})
+	api.New(st, cfg).Mount(mux)
 	log.Printf("listening on %s", cfg.ListenAddr)
 	log.Fatal(http.ListenAndServe(cfg.ListenAddr, mux))
 }
