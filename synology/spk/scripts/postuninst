@@ -1,0 +1,6 @@
+#!/bin/sh
+. "$(dirname "$0")/_common"
+
+# Keep /volume1/pilotserver data by default; only remove package var.
+rm -f "${PILOTSERVER_PID}" 2>/dev/null || true
+exit 0

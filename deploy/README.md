@@ -1,5 +1,7 @@
 # 部署说明
 
+群晖 DSM 7.2（x86_64）套件安装见 [docs/synology-dsm72-spk.md](../docs/synology-dsm72-spk.md)。
+
 ## 必需配置
 
 - `PILOTSERVER_PUBLIC_BASE_URL`：对外 HTTPS 根地址

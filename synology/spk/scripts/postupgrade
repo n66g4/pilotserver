@@ -1,0 +1,4 @@
+#!/bin/sh
+. "$(dirname "$0")/_common"
+# Same as postinst for wizard password refresh on upgrade installs.
+exec "$(dirname "$0")/postinst"

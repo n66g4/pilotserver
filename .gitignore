@@ -1,4 +1,6 @@
 bin/
 data/
+dist/
 *.db
 .superpowers/
+*.spk

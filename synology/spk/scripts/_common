@@ -1,0 +1,12 @@
+#!/bin/sh
+# Common paths for Synology package scripts.
+# PACKAGE / PACKAGE_DIR / PACKAGE_VAR etc. are exported by Synology.
+
+PILOTSERVER_HOME="${SYNOPKG_PKGDEST:-/var/packages/pilotserver/target}"
+PILOTSERVER_VAR="${SYNOPKG_PKGVAR:-/var/packages/pilotserver/var}"
+# User data on volume (shared, persists across upgrades better when we symlink/copy env)
+PILOTSERVER_DATA_DEFAULT="/volume1/pilotserver"
+PILOTSERVER_ENV_FILE="${PILOTSERVER_DATA_DEFAULT}/pilotserver.env"
+PILOTSERVER_BIN="${PILOTSERVER_HOME}/bin/pilotserver"
+PILOTSERVER_PID="${PILOTSERVER_VAR}/pilotserver.pid"
+PILOTSERVER_LOG="${PILOTSERVER_VAR}/pilotserver.log"

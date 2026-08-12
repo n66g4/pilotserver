@@ -1,0 +1,8 @@
+#!/bin/sh
+. "$(dirname "$0")/_common"
+
+case "$1" in
+preinst)
+	exit 0
+	;;
+esac

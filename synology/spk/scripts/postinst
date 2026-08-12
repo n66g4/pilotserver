@@ -1,0 +1,47 @@
+#!/bin/sh
+. "$(dirname "$0")/_common"
+
+mkdir -p "${PILOTSERVER_DATA_DEFAULT}/uploads" \
+	"${PILOTSERVER_DATA_DEFAULT}/ota/files" \
+	"${PILOTSERVER_VAR}"
+
+# Generate secrets once; PUBLIC_BASE_URL left for admin to fill (DSM DDNS/reverse proxy).
+if [ ! -f "${PILOTSERVER_ENV_FILE}" ]; then
+	JWT_SECRET="$(/bin/dd if=/dev/urandom bs=32 count=1 2>/dev/null | /usr/bin/od -An -tx1 | /bin/tr -d ' \n')"
+	if [ -z "${JWT_SECRET}" ] || [ "${#JWT_SECRET}" -lt 32 ]; then
+		JWT_SECRET="$(/bin/date +%s%N)-pilotserver-change-me-please-32b"
+	fi
+
+	ADMIN_PASS="${wizard_admin_password}"
+	if [ -z "${ADMIN_PASS}" ]; then
+		echo "wizard_admin_password missing" >&2
+		exit 1
+	fi
+
+	umask 077
+	{
+		echo "# Edit PUBLIC_BASE_URL to match DSM reverse-proxy HTTPS hostname (not DDNS settings UI)."
+		echo "PILOTSERVER_PUBLIC_BASE_URL="
+		echo "PILOTSERVER_JWT_SECRET=${JWT_SECRET}"
+		echo "PILOTSERVER_ADMIN_PASSWORD=${ADMIN_PASS}"
+		echo "PILOTSERVER_LISTEN=127.0.0.1:8080"
+		echo "PILOTSERVER_DATA_DIR=${PILOTSERVER_DATA_DEFAULT}"
+		if [ -n "${wizard_pairing_token}" ]; then
+			echo "PILOTSERVER_PAIRING_TOKEN=${wizard_pairing_token}"
+		fi
+	} > "${PILOTSERVER_ENV_FILE}"
+else
+	# Upgrade: refresh admin password if wizard provided one
+	if [ -n "${wizard_admin_password}" ]; then
+		if /bin/grep -q '^PILOTSERVER_ADMIN_PASSWORD=' "${PILOTSERVER_ENV_FILE}"; then
+			/bin/sed -i "s|^PILOTSERVER_ADMIN_PASSWORD=.*|PILOTSERVER_ADMIN_PASSWORD=${wizard_admin_password}|" "${PILOTSERVER_ENV_FILE}"
+		else
+			echo "PILOTSERVER_ADMIN_PASSWORD=${wizard_admin_password}" >> "${PILOTSERVER_ENV_FILE}"
+		fi
+	fi
+fi
+
+chmod 600 "${PILOTSERVER_ENV_FILE}" 2>/dev/null || true
+chmod 755 "${PILOTSERVER_BIN}" 2>/dev/null || true
+
+exit 0

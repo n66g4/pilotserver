@@ -1,0 +1,13 @@
+[{
+  "protocol": "tcp",
+  "port": "8080",
+  "title": "PilotServer HTTP",
+  "description": "Local-only API (behind DSM reverse proxy)",
+  "dst_ports": "8080"
+}, {
+  "protocol": "tcp",
+  "port": "41000:41099",
+  "title": "PilotServer SSH tunnels",
+  "description": "Temporary Athena SSH tunnel ports",
+  "dst_ports": "41000:41099"
+}]
