@@ -63,6 +63,8 @@ mkdir -p "${STAGE}/spk/scripts" "${STAGE}/spk/conf" "${STAGE}/spk/WIZARD_UIFILES
 cp "${STAGE}/package.tgz" "${STAGE}/spk/"
 sed "s/REPLACE_VERSION/${VERSION}/" "${SPK_SRC}/INFO.in" >"${STAGE}/spk/INFO"
 cp "${SPK_SRC}/conf/privilege" "${STAGE}/spk/conf/"
+cp "${SPK_SRC}/conf/port_config" "${STAGE}/spk/conf/"
+cp "${SPK_SRC}/conf/resource" "${STAGE}/spk/conf/"
 cp "${SPK_SRC}/WIZARD_UIFILES/install_uifile" "${STAGE}/spk/WIZARD_UIFILES/"
 cp "${SPK_SRC}/scripts/"* "${STAGE}/spk/scripts/"
 chmod 755 "${STAGE}/spk/scripts/"*
