@@ -1,0 +1,14 @@
+[{
+  "step_title": "PilotServer Settings",
+  "items": [{
+    "desc": "Optional: change listen mode. Leave unchecked to keep the current setting."
+  }, {
+    "type": "multiselect",
+    "desc": "Check to allow direct LAN access at http://NAS-IP:18780/admin/ (listen on 0.0.0.0). Unchecked keeps the current setting; disable later in /admin/.",
+    "subitems": [{
+      "key": "wizard_allow_lan",
+      "desc": "Allow direct LAN access (listen on 0.0.0.0:18780)",
+      "defaultValue": false
+    }]
+  }]
+}]

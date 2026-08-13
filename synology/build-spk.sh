@@ -5,9 +5,12 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SPK_SRC="${ROOT}/synology/spk"
 DIST="${ROOT}/dist"
-VERSION="${PILOTSERVER_SPK_VERSION:-1.0.0-1}"
+VERSION="${PILOTSERVER_SPK_VERSION:-1.0.19-1}"
 PKG_NAME="pilotserver"
-ARCH="x86_64"
+ARCH="x64"
+# Avoid macOS AppleDouble (._*) files breaking DSM wizard parsing.
+export COPYFILE_DISABLE=1
+export COPY_EXTENDED_ATTRIBUTES_DISABLE=1
 STAGE="$(mktemp -d "${TMPDIR:-/tmp}/pilotserver-spk.XXXXXX")"
 cleanup() { rm -rf "${STAGE}"; }
 trap cleanup EXIT
@@ -31,7 +34,7 @@ cat >"${STAGE}/package/ui/config" <<EOF
       "icon": "images/pilotserver-{0}.png",
       "type": "url",
       "protocol": "http",
-      "port": "8080",
+      "port": "18780",
       "url": "/admin/",
       "allUsers": true
     }
@@ -63,11 +66,18 @@ mkdir -p "${STAGE}/spk/scripts" "${STAGE}/spk/conf" "${STAGE}/spk/WIZARD_UIFILES
 cp "${STAGE}/package.tgz" "${STAGE}/spk/"
 sed "s/REPLACE_VERSION/${VERSION}/" "${SPK_SRC}/INFO.in" >"${STAGE}/spk/INFO"
 cp "${SPK_SRC}/conf/privilege" "${STAGE}/spk/conf/"
-cp "${SPK_SRC}/conf/port_config" "${STAGE}/spk/conf/"
-cp "${SPK_SRC}/conf/resource" "${STAGE}/spk/conf/"
-cp "${SPK_SRC}/WIZARD_UIFILES/install_uifile" "${STAGE}/spk/WIZARD_UIFILES/"
-cp "${SPK_SRC}/scripts/"* "${STAGE}/spk/scripts/"
+# Do NOT ship conf/resource port-config: DSM7 expects a .sc under package target;
+# a wrong protocol-file path/format aborts install after the wizard.
+# Copy wizard/scripts without AppleDouble junk
+find "${SPK_SRC}/WIZARD_UIFILES" -type f ! -name '._*' -exec cp {} "${STAGE}/spk/WIZARD_UIFILES/" \;
+find "${SPK_SRC}/scripts" -type f ! -name '._*' -exec cp {} "${STAGE}/spk/scripts/" \;
+# DSM scripts must be LF
+find "${STAGE}/spk/scripts" -type f -exec sed -i '' $'s/\r$//' {} +
+find "${STAGE}/spk/WIZARD_UIFILES" -type f -exec sed -i '' $'s/\r$//' {} +
 chmod 755 "${STAGE}/spk/scripts/"*
+# INFO must not contain comments
+grep -v '^[[:space:]]*#' "${STAGE}/spk/INFO" > "${STAGE}/spk/INFO.clean" || true
+mv "${STAGE}/spk/INFO.clean" "${STAGE}/spk/INFO"
 
 # checksums (DSM expects PACKAGE_SHA256 or older checksum sometimes)
 (
@@ -77,7 +87,8 @@ chmod 755 "${STAGE}/spk/scripts/"*
 
 OUT="${DIST}/${PKG_NAME}-${VERSION}-${ARCH}.spk"
 mkdir -p "${DIST}"
-tar -C "${STAGE}/spk" -cf "${OUT}" INFO PACKAGE_SHA256 package.tgz scripts conf WIZARD_UIFILES
+tar -C "${STAGE}/spk" --exclude='._*' --exclude='.DS_Store' -cf "${OUT}" \
+	INFO PACKAGE_SHA256 package.tgz scripts conf WIZARD_UIFILES
 
 echo "==> built ${OUT}"
 tar -tf "${OUT}" | head -40

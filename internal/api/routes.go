@@ -50,11 +50,15 @@ func (a *API) uploadURL(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "sign upload URL", http.StatusInternalServerError)
 		return
 	}
+	if a.baseURL == nil || a.baseURL.Get() == "" {
+		http.Error(w, "public base URL not configured", http.StatusServiceUnavailable)
+		return
+	}
 	writeJSON(w, http.StatusOK, struct {
 		URL     string            `json:"url"`
 		Headers map[string]string `json:"headers"`
 	}{
-		URL:     strings.TrimRight(a.publicBaseURL, "/") + "/upload/put/" + token,
+		URL:     strings.TrimRight(a.baseURL.Get(), "/") + "/upload/put/" + token,
 		Headers: map[string]string{},
 	})
 }

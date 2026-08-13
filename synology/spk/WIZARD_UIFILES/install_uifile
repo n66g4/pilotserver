@@ -1,24 +1,49 @@
 [{
-  "step_title": "PilotServer 管理员",
+  "step_title": "PilotServer Admin",
+  "invalid_next_disabled": true,
   "items": [{
-    "type": "password",
-    "desc": "管理后台登录密码（至少 8 位）",
-    "subdesc": "安装后访问 http://群晖:8080/admin/ 或经反向代理的 /admin/",
-    "key": "wizard_admin_password",
-    "validator": {
-      "allowBlank": false,
-      "minLength": 8,
-      "maxLength": 128
-    }
+    "desc": "Set the admin password for /admin/. Optional fields can be filled later in the admin UI."
   }, {
     "type": "password",
-    "desc": "可选：配对二次口令 PILOTSERVER_PAIRING_TOKEN",
-    "subdesc": "留空则仅校验设备 register JWT。若填写，设备还需 pair_code / X-Pairing-Password。",
-    "key": "wizard_pairing_token",
-    "validator": {
-      "allowBlank": true,
-      "minLength": 8,
-      "maxLength": 128
-    }
+    "desc": "Admin password (required, at least 8 characters)",
+    "subitems": [{
+      "key": "wizard_admin_password",
+      "desc": "Password",
+      "validator": {
+        "allowBlank": false,
+        "minLength": 8,
+        "maxLength": 128
+      }
+    }]
+  }, {
+    "type": "textfield",
+    "desc": "Optional public HTTPS URL (e.g. https://xxx.synology.me). Not DDNS setup; DDNS stays in DSM.",
+    "subitems": [{
+      "key": "wizard_public_base_url",
+      "desc": "Public URL",
+      "validator": {
+        "allowBlank": true,
+        "maxLength": 256
+      }
+    }]
+  }, {
+    "type": "multiselect",
+    "desc": "Listen mode. Default is loopback only (127.0.0.1) behind DSM reverse proxy; check to allow direct LAN access at http://NAS-IP:18780/admin/",
+    "subitems": [{
+      "key": "wizard_allow_lan",
+      "desc": "Allow direct LAN access (listen on 0.0.0.0:18780)",
+      "defaultValue": false
+    }]
+  }, {
+    "type": "password",
+    "desc": "Optional pairing token (PILOTSERVER_PAIRING_TOKEN). Leave blank to only verify device register JWT.",
+    "subitems": [{
+      "key": "wizard_pairing_token",
+      "desc": "Pairing token",
+      "validator": {
+        "allowBlank": true,
+        "maxLength": 128
+      }
+    }]
   }]
 }]

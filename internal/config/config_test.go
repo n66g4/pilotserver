@@ -19,7 +19,7 @@ func TestLoadDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.ListenAddr != "127.0.0.1:8080" {
+	if cfg.ListenAddr != "127.0.0.1:18780" {
 		t.Fatalf("listen: %s", cfg.ListenAddr)
 	}
 }
@@ -40,7 +40,7 @@ func TestLoadRequiresAdminPasswordAndAllowsOptionalPairingToken(t *testing.T) {
 
 func TestLoadRejectsNonLoopbackListen(t *testing.T) {
 	setRequiredEnv(t)
-	t.Setenv("PILOTSERVER_LISTEN", "0.0.0.0:8080")
+	t.Setenv("PILOTSERVER_LISTEN", "0.0.0.0:18780")
 	t.Setenv("PILOTSERVER_ALLOW_NON_LOOPBACK", "")
 	if _, err := config.Load(); err == nil {
 		t.Fatal("non-loopback listen accepted")
@@ -49,6 +49,18 @@ func TestLoadRejectsNonLoopbackListen(t *testing.T) {
 	t.Setenv("PILOTSERVER_ALLOW_NON_LOOPBACK", "1")
 	if _, err := config.Load(); err != nil {
 		t.Fatalf("explicitly allowed non-loopback listen rejected: %v", err)
+	}
+}
+
+func TestLoadAllowsEmptyPublicBaseURL(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("PILOTSERVER_PUBLIC_BASE_URL", "")
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.PublicBaseURL != "" {
+		t.Fatalf("public base url = %q", cfg.PublicBaseURL)
 	}
 }
 

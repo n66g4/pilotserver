@@ -5,75 +5,680 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Pilotserver Admin</title>
   <style>
-    body { max-width: 900px; margin: 32px auto; padding: 0 16px; font: 16px/1.5 monospace; }
-    input, button { font: inherit; padding: 6px 8px; }
-    table { width: 100%; margin-top: 20px; border-collapse: collapse; }
-    th, td { padding: 8px; border: 1px solid #999; text-align: left; }
-    .online { color: green; }
-    .offline, #message { color: #b00020; }
+    :root {
+      color-scheme: light;
+      --paper: #f5f1e8;
+      --surface: #fffdf8;
+      --ink: #172125;
+      --muted: #697276;
+      --line: #d8d3c8;
+      --cyan: #087f8c;
+      --warning: #a15c00;
+      --danger: #b42318;
+      --rail: #172125;
+    }
+    * { box-sizing: border-box; }
+    html, body { min-height: 100%; }
+    body { margin: 0; color: var(--ink); background: var(--paper); font: 15px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+    input, button, select { min-height: 40px; padding: 8px 10px; font: inherit; }
+    input[type="checkbox"] { min-width: 40px; }
+    button { cursor: pointer; }
+    button:disabled { cursor: not-allowed; opacity: .45; }
+    button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline: 3px solid #22d3ee; outline-offset: 2px; }
+    h1, h2, p { margin-top: 0; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { padding: 12px; border-bottom: 1px solid var(--line); text-align: left; }
+    .online { color: #067647; }
+    .offline, #message, #workspace-status { color: var(--danger); }
     code { user-select: all; }
+    .login-card { width: min(440px, calc(100% - 32px)); margin: 12vh auto; padding: 32px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 18px 45px #2733371a; }
+    .login-card label { display: grid; gap: 8px; }
+    .login-card button { width: 100%; margin-top: 16px; color: white; background: var(--cyan); border: 0; }
+    #app-shell { display: grid; grid-template-columns: 224px minmax(0, 1fr); min-height: 100vh; }
+    #primary-nav { position: sticky; top: 0; height: 100vh; padding: 28px 18px; color: #edf5f4; background: var(--rail); }
+    .brand { margin: 0 10px 34px; font-size: 19px; font-weight: 800; letter-spacing: .08em; }
+    .brand span { color: #55d5df; }
+    #primary-nav nav { display: grid; gap: 8px; }
+    #primary-nav nav button { width: 100%; padding-inline: 14px; color: #c4d0d0; background: transparent; border: 1px solid transparent; text-align: left; }
+    #primary-nav nav button:hover { border-color: #496166; }
+    #primary-nav nav button[aria-current="page"] { color: white; background: #26373b; border-color: #4e686e; }
+    .console { min-width: 0; }
+    .topbar { position: sticky; z-index: 10; top: 0; display: flex; min-height: 64px; padding: 10px clamp(18px, 3vw, 40px); align-items: center; justify-content: flex-end; gap: 12px; background: #fffdf8ee; border-bottom: 1px solid var(--line); backdrop-filter: blur(10px); }
+    .status-pill { display: inline-flex; min-height: 32px; padding: 5px 10px; align-items: center; gap: 7px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; }
+    .status-pill::before { width: 8px; height: 8px; content: ""; background: #12b76a; border-radius: 50%; }
+    #service-indicator[data-on="false"]::before { background: var(--danger); }
+    #workspace { width: min(100%, 1440px); margin: 0 auto; padding: clamp(24px, 4vw, 56px); }
+    .view-heading { margin-bottom: 24px; font: 700 clamp(25px, 4vw, 38px)/1.1 Georgia, serif; letter-spacing: -.025em; }
+    .panel { padding: clamp(18px, 3vw, 28px); background: var(--surface); border: 1px solid var(--line); box-shadow: 0 8px 22px #2733370d; }
+    .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 20px; }
+    .metric { min-height: 126px; padding: 20px; background: var(--surface); border: 1px solid var(--line); }
+    .metric-label { display: block; color: var(--muted); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
+    .metric strong { display: block; margin-top: 16px; font: 700 27px/1.1 Georgia, serif; }
+    #recent-routes { margin: 0; padding-left: 20px; }
+    #recent-routes li { padding: 7px 0; }
+    .view-actions { display: flex; margin-bottom: 16px; justify-content: flex-end; }
+    #file-status { color: var(--danger); }
+    #file-list a { display: inline-flex; min-height: 40px; align-items: center; }
+    #replay-entry { margin: 16px 0; padding: 14px; border: 2px solid var(--cyan); background: #ecfeff; }
+    #replay-entry button { font-weight: 700; }
+    #replay-view { padding: clamp(16px, 3vw, 32px); color: #d9e4e8; background: #101719; border: 1px solid #33474d; box-shadow: 0 18px 50px #0b111366; }
+    .replay-header, .replay-controls, .replay-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .replay-header { justify-content: space-between; margin-bottom: 18px; }
+    .replay-header h2 { margin: 0; color: #f3f7f8; letter-spacing: .02em; }
+    .replay-controls label { display: flex; align-items: center; gap: 8px; }
+    #replay-view button, #replay-view select { color: #e8f3f5; background: #182428; border: 1px solid #526a72; }
+    #replay-view button:hover { border-color: #22d3ee; }
+    #replay-video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #050708; border: 1px solid #26383e; }
+    .replay-meta { justify-content: space-between; margin: 14px 0; color: #9eb1b7; }
+    #replay-status { min-height: 24px; color: #fbbf24; }
+    #segment-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(34px, 1fr)); gap: 5px; margin: 14px 0 20px; }
+    #segment-strip button, #segment-strip span { min-width: 0; min-height: 40px; padding: 5px; text-align: center; border: 1px solid #3d555d; }
+    #segment-strip button { color: #67e8f9; }
+    #segment-strip button[aria-current="true"] { color: #081113; background: #22d3ee; border-color: #67e8f9; }
+    #segment-strip button[data-telemetry-error="true"] { color: #fca5a5; border-color: #ef4444; }
+    #segment-strip span { color: #66777c; background: repeating-linear-gradient(135deg, #182226, #182226 5px, #11191c 5px, #11191c 10px); }
+    .map-settings-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 12px 0; }
+    .map-settings-grid label { display: grid; gap: 4px; }
+    .settings-note { margin: 8px 0; color: var(--muted); font-size: 13px; }
+    #map-refresh-note { color: var(--warning); }
+    .telemetry-hud { display: grid; grid-template-columns: minmax(150px, 1.2fr) repeat(2, minmax(110px, 1fr)) minmax(180px, 2fr); gap: 8px; margin: 14px 0; }
+    .hud-cell { min-height: 78px; padding: 12px; background: #0a1215; border: 1px solid #294047; }
+    .hud-label { display: block; color: #718a91; font-size: 11px; letter-spacing: .14em; }
+    #telemetry-speed { color: #f5fbfc; font-size: clamp(28px, 5vw, 48px); line-height: 1; }
+    .hud-unit { color: #789097; }
+    #telemetry-state { color: #67e8f9; font-size: 18px; }
+    .telemetry-badge { display: inline-flex; min-height: 28px; margin: 7px 4px 0 0; padding: 4px 8px; align-items: center; color: #52686e; border: 1px solid #334b52; }
+    .telemetry-badge[data-on="true"] { color: #041310; background: #2dd4bf; border-color: #5eead4; }
+    #telemetry-alert { color: #fbbf24; overflow-wrap: anywhere; }
+    .telemetry-panels { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 12px; }
+    .telemetry-panel { min-width: 0; padding: 10px; background: #0a1215; border: 1px solid #294047; }
+    .telemetry-panel header { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; color: #bdd0d5; }
+    .telemetry-panel header span { color: #70878e; font-size: 12px; }
+    .map-stage { position: relative; height: 280px; overflow: hidden; background: #071013; }
+    #telemetry-map, #telemetry-map-provider, #telemetry-chart { display: block; width: 100%; height: 100%; }
+    #telemetry-map-provider { position: absolute; inset: 0; }
+    .chart-stage { height: 280px; }
+    #telemetry-chart { min-height: 40px; touch-action: none; cursor: crosshair; }
+    #telemetry-chart:focus-visible { outline: 3px solid #22d3ee; outline-offset: 3px; }
+    @media (max-width: 760px) {
+      #app-shell { display: block; padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
+      #primary-nav { position: fixed; z-index: 20; top: auto; right: 0; bottom: 0; left: 0; width: auto; height: auto; padding: 7px 8px calc(7px + env(safe-area-inset-bottom)); border-top: 1px solid #496166; }
+      .brand { display: none; }
+      #primary-nav nav { grid-template-columns: repeat(4, 1fr); gap: 4px; }
+      #primary-nav nav button { padding: 6px 3px; font-size: 12px; text-align: center; }
+      .topbar { padding: 8px 12px; }
+      #service-indicator { display: none; }
+      #workspace { padding: 22px 14px; }
+      .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      #view-devices thead { display: none; }
+      #view-devices table, #view-devices tbody, #view-devices tr, #view-devices td { display: block; }
+      #view-devices tr { margin-bottom: 12px; padding: 14px; background: var(--surface); border: 1px solid var(--line); }
+      #view-devices td { padding: 5px 0; border: 0; }
+      .replay-header, .replay-controls { align-items: stretch; flex-direction: column; }
+      .replay-controls label { justify-content: space-between; }
+      .replay-controls select, .replay-controls button { flex: 1; }
+      .map-settings-grid, .telemetry-hud, .telemetry-panels { grid-template-columns: 1fr; }
+      .map-stage, .chart-stage { height: 240px; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; }
+    }
   </style>
 </head>
 <body>
-  <h1>Pilotserver Admin</h1>
-
-  <form id="login">
-    <label>管理密码 <input id="password" type="password" required></label>
-    <button type="submit">登录</button>
+  <form id="login" class="login-card">
+    <h1 data-i18n="login.title">Pilotserver Admin</h1>
+    <label><span data-i18n="login.password">Admin password</span><input id="password" type="password" required data-i18n-placeholder="login.passwordPlaceholder"></label>
+    <button type="submit" data-i18n="login.submit">Log in</button>
+    <p id="message" aria-live="polite"></p>
   </form>
 
   <section id="devices" hidden>
-    <button id="refresh" type="button">刷新设备</button>
-    <button id="logout" type="button">退出</button>
-    <table>
-      <thead><tr><th>dongle_id</th><th>状态</th><th>操作 / SSH 命令</th></tr></thead>
-      <tbody id="device-list"></tbody>
-    </table>
-    <div id="route-browser"></div>
+    <div id="app-shell">
+      <aside id="primary-nav">
+        <div class="brand">PILOT<span>/SERVER</span></div>
+        <nav aria-label="Primary navigation" data-i18n-aria-label="nav.primaryAria">
+          <button type="button" data-view="overview" aria-current="page" data-i18n="nav.overview">Overview</button>
+          <button type="button" data-view="devices" data-i18n="nav.devices">Devices</button>
+          <button type="button" data-view="routes" data-i18n="nav.routes" disabled>Routes</button>
+          <button type="button" data-view="settings" data-i18n="nav.settings">Settings</button>
+        </nav>
+      </aside>
+      <div class="console">
+        <header class="topbar">
+          <div id="service-indicator" class="status-pill" data-on="false" data-i18n="topbar.serviceError">Service error</div>
+          <div id="online-device-count" class="status-pill">0 / 0</div>
+          <button id="language-toggle" type="button" data-i18n="topbar.languageToggle">English</button>
+          <button id="logout" type="button" data-i18n="common.logout">Log out</button>
+        </header>
+        <main id="workspace">
+          <p id="workspace-status" aria-live="polite"></p>
+          <section id="view-overview">
+            <h1 class="view-heading" tabindex="-1" data-i18n="overview.title">Overview</h1>
+            <div class="metric-grid">
+              <div class="metric"><span class="metric-label" data-i18n="overview.onlineDevices">Online devices</span><strong id="overview-devices">0 / 0</strong></div>
+              <div class="metric"><span class="metric-label" data-i18n="overview.totalRoutes">Stored routes</span><strong id="overview-routes">0</strong></div>
+              <div class="metric"><span class="metric-label">LAN</span><strong id="overview-lan">—</strong></div>
+              <div class="metric"><span class="metric-label" data-i18n="overview.mapProvider">Map provider</span><strong id="overview-map">none</strong></div>
+            </div>
+            <div class="panel">
+              <h2 data-i18n="overview.recentRoutes">Recent routes</h2>
+              <ol id="recent-routes"></ol>
+            </div>
+          </section>
+          <section id="view-devices" hidden>
+            <h1 class="view-heading" tabindex="-1" data-i18n="devices.title">Devices</h1>
+            <div class="view-actions"><button id="refresh" type="button" data-i18n="devices.refresh">Refresh devices</button></div>
+            <div class="panel">
+              <table>
+                <thead><tr><th data-i18n="devices.dongleId">dongle_id</th><th data-i18n="devices.status">Status</th><th data-i18n="devices.actions">Actions / SSH command</th></tr></thead>
+                <tbody id="device-list"></tbody>
+              </table>
+            </div>
+          </section>
+          <section id="view-routes" hidden>
+            <h1 class="view-heading" tabindex="-1" data-i18n="nav.routes">Routes</h1>
+            <div id="route-browser"></div>
+            <div id="file-view">
+              <p id="file-status" aria-live="polite"></p>
+              <div id="replay-entry" hidden aria-live="polite"></div>
+              <div id="file-list"></div>
+            </div>
+          </section>
+          <section id="view-settings" hidden>
+            <h1 class="view-heading" tabindex="-1" data-i18n="settings.title">Service settings</h1>
+            <div id="settings" class="panel">
+              <p data-i18n="settings.publicBaseUrlHelp">Public base URL is used for upload/SSH. Listen address defaults to 127.0.0.1; changing the port hot-reloads the process—update your reverse proxy target accordingly.</p>
+              <div><label><span data-i18n="settings.publicBaseUrlLabel">Public base URL</span> (PUBLIC_BASE_URL) <input id="public-base-url" type="url" placeholder="https://your-domain.example" style="width:min(420px,100%)"></label></div>
+              <div><label><span data-i18n="settings.listenLabel">Listen address</span> (LISTEN) <input id="listen-addr" type="text" placeholder="127.0.0.1:18780" style="width:min(420px,100%)"></label></div>
+              <div><label><input id="allow-lan" type="checkbox"> <span data-i18n="settings.allowLan">Allow LAN direct access</span></label></div>
+              <div class="map-settings-grid">
+                <label><span data-i18n="settings.mapProvider">Map base layer</span><select id="map-provider"><option value="none" data-i18n="settings.mapNone">Trace without map</option><option value="amap" data-i18n="settings.mapAmap">AMap</option><option value="tencent" data-i18n="settings.mapTencent">Tencent Map</option></select></label>
+                <label><span data-i18n="settings.webKey">Web Key</span><input id="map-web-key" type="password" autocomplete="off" maxlength="512"></label>
+                <label id="map-security-code-field"><span data-i18n="settings.securityCode">AMap security code</span><input id="map-security-code" type="password" autocomplete="off" maxlength="512"></label>
+              </div>
+              <p class="settings-note" data-i18n="settings.mapNote">Map keys are sent to the browser; restrict allowed domains in your map provider console.</p>
+              <p id="map-refresh-note" hidden data-i18n="settings.mapRefreshNote">Refresh the page to apply a new map key</p>
+              <button id="save-settings" type="button" data-i18n="settings.save">Save</button>
+              <span id="settings-status"></span>
+            </div>
+          </section>
+          <section id="replay-view" hidden aria-labelledby="replay-title">
+      <header class="replay-header">
+        <h2 id="replay-title" tabindex="-1"></h2>
+        <div class="replay-controls">
+          <label><span data-i18n="replay.playMode">Playback mode</span>
+            <select id="replay-mode">
+              <option value="route" data-i18n="replay.modeRoute">Whole route</option>
+              <option value="segment" data-i18n="replay.modeSegment">Single segment</option>
+            </select>
+          </label>
+          <button id="previous-segment" type="button" data-i18n="replay.previousSegment">Previous</button>
+          <label><span data-i18n="replay.videoSegment">Video segment</span>
+            <select id="replay-segment"></select>
+          </label>
+          <button id="next-segment" type="button" data-i18n="replay.nextSegment">Next</button>
+          <button id="back-to-files" type="button" data-i18n="replay.backToFiles">Back to file list</button>
+        </div>
+      </header>
+      <video id="replay-video" controls playsinline></video>
+      <div class="replay-meta">
+        <span id="replay-selection"></span>
+        <span><span id="replay-current-time">00:00</span> / <span id="replay-duration">00:00</span></span>
+      </div>
+      <p id="replay-status" aria-live="polite"></p>
+      <button id="replay-retry" type="button" hidden data-i18n="replay.retry">Retry playback</button>
+      <button id="replay-skip-segment" type="button" hidden data-i18n="replay.skipSegment">Skip to next playable segment</button>
+      <section class="telemetry-hud" aria-label="Current telemetry status" data-i18n-aria-label="telemetry.hudAriaLabel">
+        <div class="hud-cell">
+          <span class="hud-label" data-i18n="telemetry.hudSpeed">VEHICLE SPEED</span>
+          <strong id="telemetry-speed">--</strong> <span class="hud-unit">km/h</span>
+        </div>
+        <div class="hud-cell">
+          <span class="hud-label" data-i18n="telemetry.hudState">CONTROL STATE</span>
+          <strong id="telemetry-state" data-i18n="telemetry.noData">No data</strong>
+        </div>
+        <div class="hud-cell">
+          <span class="hud-label" data-i18n="telemetry.hudFlags">SYSTEM FLAGS</span>
+          <span id="telemetry-enabled" class="telemetry-badge" data-on="false" data-i18n="telemetry.enabled">ENABLED</span>
+          <span id="telemetry-active" class="telemetry-badge" data-on="false" data-i18n="telemetry.active">ACTIVE</span>
+        </div>
+        <div class="hud-cell">
+          <span class="hud-label" data-i18n="telemetry.hudAlert">CURRENT ALERT</span>
+          <strong id="telemetry-alert" data-i18n="telemetry.noAlert">No alert</strong>
+        </div>
+      </section>
+      <div class="telemetry-panels">
+        <section class="telemetry-panel" aria-labelledby="telemetry-map-title">
+          <header><strong id="telemetry-map-title" data-i18n="telemetry.mapTitle">ROUTE TRACE</strong><span id="telemetry-map-status" aria-live="polite" data-i18n="telemetry.waitingTrace">Waiting for trace data</span></header>
+          <div class="map-stage">
+            <canvas id="telemetry-map" aria-label="Route trace" data-i18n-aria-label="telemetry.mapCanvasAria"></canvas>
+            <div id="telemetry-map-provider" hidden aria-label="Map base layer" data-i18n-aria-label="telemetry.mapProviderAria"></div>
+          </div>
+        </section>
+        <section class="telemetry-panel" aria-labelledby="telemetry-chart-title">
+          <header><strong id="telemetry-chart-title" data-i18n="telemetry.chartTitle">SPEED / CONTROL</strong><span id="telemetry-chart-status" aria-live="polite" data-i18n="telemetry.waiting">Waiting for telemetry data</span></header>
+          <div class="chart-stage"><canvas id="telemetry-chart" tabindex="0" role="slider" aria-label="Speed and control timeline" data-i18n-aria-label="telemetry.chartAriaLabel" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0"></canvas></div>
+        </section>
+      </div>
+      <p id="telemetry-segment-status" aria-live="polite"></p>
+      <div id="segment-strip" aria-label="Segment playback and telemetry status" data-i18n-aria-label="telemetry.segmentStripAria"></div>
+          </section>
+        </main>
+      </div>
+    </div>
   </section>
 
-  <p id="message"></p>
-
+  <script src="/admin/vendor/hls.min.js"></script>
+  <script src="/admin/i18n.js"></script>
+  <script src="/admin/telemetry.js"></script>
   <script>
     const tokenKey = "pilotserver_admin_token";
+    const i18n = window.PilotI18n.create({
+      languages: [...(navigator.languages || []), navigator.language]
+    });
+    const appState = {
+      view: "overview",
+      devices: [],
+      routesByDevice: new Map(),
+      selectedDongleID: "",
+      selectedRoute: "",
+      routeRequestGeneration: 0
+    };
     const loginForm = document.querySelector("#login");
     const devicesSection = document.querySelector("#devices");
     const deviceList = document.querySelector("#device-list");
     const routeBrowser = document.querySelector("#route-browser");
+    const fileView = document.querySelector("#file-view");
+    const fileList = document.querySelector("#file-list");
+    const fileStatus = document.querySelector("#file-status");
+    const replayEntry = document.querySelector("#replay-entry");
+    const replayView = document.querySelector("#replay-view");
+    const replayVideo = document.querySelector("#replay-video");
+    const replayMode = document.querySelector("#replay-mode");
+    const replaySegment = document.querySelector("#replay-segment");
+    const replayStatus = document.querySelector("#replay-status");
+    const replayRetry = document.querySelector("#replay-retry");
+    const replaySkipSegment = document.querySelector("#replay-skip-segment");
     const message = document.querySelector("#message");
+    const workspaceStatus = document.querySelector("#workspace-status");
+    const serviceIndicator = document.querySelector("#service-indicator");
+    let mapSettings = {map_provider: "none", map_web_key: "", map_security_code: ""};
+    let currentSettings = {};
+    let replayContext = null;
+    let hlsInstance = null;
+    let ticketRefreshTimer = null;
+    let replayRequestGeneration = 0;
+    let routeRequestGeneration = 0;
+    let authGeneration = 0;
+    const staleSession = Symbol("staleSession");
+    let replayTrigger = null;
+    let failedReplaySegment = null;
+    const telemetry = window.PilotTelemetry.create({
+      video: replayVideo,
+      api,
+      translate: i18n.t,
+      getMapSettings: () => mapSettings,
+      onSegmentLoadState: (number, failed) => {
+        const runtimeTelemetryErrors = replayContext?.runtimeTelemetryErrors;
+        if (!runtimeTelemetryErrors) return;
+        if (failed) runtimeTelemetryErrors.add(number);
+        else runtimeTelemetryErrors.delete(number);
+        renderSegmentStrip();
+      },
+      onTime: (time, duration) => {
+        document.querySelector("#replay-current-time").textContent = formatTime(time);
+        document.querySelector("#replay-duration").textContent = formatTime(duration);
+      },
+      elements: {
+        speed: document.querySelector("#telemetry-speed"),
+        state: document.querySelector("#telemetry-state"),
+        enabled: document.querySelector("#telemetry-enabled"),
+        active: document.querySelector("#telemetry-active"),
+        alert: document.querySelector("#telemetry-alert"),
+        mapCanvas: document.querySelector("#telemetry-map"),
+        providerLayer: document.querySelector("#telemetry-map-provider"),
+        mapStatus: document.querySelector("#telemetry-map-status"),
+        chart: document.querySelector("#telemetry-chart"),
+        chartStatus: document.querySelector("#telemetry-chart-status")
+      }
+    });
+    window.PilotTelemetry.active = telemetry;
 
     function setLoggedIn(loggedIn) {
       loginForm.hidden = loggedIn;
       devicesSection.hidden = !loggedIn;
+      if (loggedIn) setView("overview");
+    }
+
+    function clearSession() {
+      authGeneration++;
+      localStorage.removeItem(tokenKey);
+      const wasReplay = appState.view === "replay";
+      clearRouteBrowserState();
+      if (!wasReplay) {
+        replayRequestGeneration++;
+        clearReplaySource();
+        telemetry.cleanup();
+        replayContext = null;
+        replayTrigger = null;
+        replayView.hidden = true;
+      }
+      appState.view = "overview";
+      appState.devices = [];
+      appState.routesByDevice.clear();
+      appState.selectedDongleID = "";
+      appState.selectedRoute = "";
+      currentSettings = {};
+      mapSettings = {map_provider: "none", map_web_key: "", map_security_code: ""};
+      deviceList.replaceChildren();
+      routeBrowser.replaceChildren();
+      fileList.replaceChildren();
+      replayEntry.replaceChildren();
+      replayEntry.hidden = true;
+      clearLocalizedText(fileStatus);
+      clearLocalizedText(message);
+      clearLocalizedText(workspaceStatus);
+      document.querySelector("#online-device-count").textContent = "0 / 0";
+      document.querySelector("#password").value = "";
+      document.querySelector("#public-base-url").value = "";
+      document.querySelector("#listen-addr").value = "";
+      document.querySelector("#allow-lan").checked = false;
+      document.querySelector("#map-provider").value = "none";
+      document.querySelector("#map-web-key").value = "";
+      document.querySelector("#map-security-code").value = "";
+      document.querySelector("#map-security-code-field").hidden = true;
+      document.querySelector("#map-refresh-note").hidden = true;
+      clearLocalizedText(document.querySelector("#settings-status"));
+      document.querySelector('#primary-nav [data-view="routes"]').disabled = true;
+      for (const section of document.querySelectorAll("#workspace > section")) {
+        section.hidden = section.id !== "view-overview";
+      }
+      renderOverview();
+      setLoggedIn(false);
+    }
+
+    function setView(view) {
+      const target = document.querySelector(view === "replay" ? "#replay-view" : `#view-${view}`);
+      if (!target) return;
+      const previous = appState.view;
+      if (previous === "replay" && view !== "replay") {
+        leaveReplay();
+      } else if ((previous === "overview" || previous === "routes") && previous !== view) {
+        routeRequestGeneration++;
+        appState.routeRequestGeneration = routeRequestGeneration;
+      }
+      appState.view = view;
+      clearLocalizedText(workspaceStatus);
+      for (const section of document.querySelectorAll("#workspace > section")) {
+        section.hidden = section !== target;
+      }
+      for (const button of document.querySelectorAll("#primary-nav [data-view]")) {
+        if (button.dataset.view === view) button.setAttribute("aria-current", "page");
+        else button.removeAttribute("aria-current");
+      }
+      if (view === "overview") {
+        renderOverview();
+        loadOverviewRoutes();
+      }
+      const heading = target.querySelector('h1[tabindex="-1"]') || target.querySelector('[tabindex="-1"]');
+      if (heading) heading.focus();
+    }
+
+    function setLocalizedText(element, key, params) {
+      element.dataset.i18n = key;
+      if (params) element.dataset.i18nParams = JSON.stringify(params);
+      else delete element.dataset.i18nParams;
+      element.textContent = i18n.t(key, params);
+    }
+
+    function setLocalizedTitle(element, key, params) {
+      element.dataset.i18nTitle = key;
+      if (params) element.dataset.i18nTitleParams = JSON.stringify(params);
+      else delete element.dataset.i18nTitleParams;
+      element.title = i18n.t(key, params);
+    }
+
+    function clearLocalizedText(element) {
+      delete element.dataset.i18n;
+      delete element.dataset.i18nParams;
+      element.textContent = "";
+    }
+
+    function localizedError(error, fallbackKey) {
+      return window.PilotI18n.localizeError(i18n.t, error, fallbackKey);
+    }
+
+    function setLocalizedError(element, error, fallbackKey) {
+      const key = window.PilotI18n.errorKey(error, fallbackKey);
+      element.dataset.i18n = key;
+      delete element.dataset.i18nParams;
+      element.textContent = localizedError(error, fallbackKey);
+    }
+
+    function setServiceStatus(ok) {
+      serviceIndicator.dataset.on = String(ok);
+      setLocalizedText(serviceIndicator, ok ? "topbar.serviceOk" : "topbar.serviceError");
+    }
+
+    function requestError(metadata) {
+      const error = new Error("request failed");
+      Object.assign(error, metadata);
+      return error;
+    }
+
+    function renderShell() {
+      renderOverview();
+    }
+
+    function renderCurrentView() {
+      if (appState.view === "replay" && replayContext) {
+        document.querySelector("#replay-title").textContent = replayContext.route;
+      }
+    }
+
+    function applyLanguage({preserveFocus = true} = {}) {
+      const focusedElement = document.activeElement;
+      const replaySnapshot = {
+        time: replayVideo.currentTime,
+        mode: replayMode.value,
+        segment: replaySegment.value,
+        source: replayVideo.currentSrc || replayVideo.src,
+        requestGeneration: replayRequestGeneration
+      };
+      document.documentElement.lang = i18n.language();
+      window.PilotI18n.render(document, i18n.t);
+      window.PilotTelemetry.active?.setTranslate(i18n.t);
+      renderShell();
+      renderCurrentView();
+      if (preserveFocus && focusedElement?.isConnected) focusedElement.focus();
+      console.assert(replayVideo.currentTime === replaySnapshot.time, "language switch changed replay time");
+      console.assert(replayMode.value === replaySnapshot.mode, "language switch changed replay mode");
+      console.assert(replaySegment.value === replaySnapshot.segment, "language switch changed replay segment");
+      console.assert((replayVideo.currentSrc || replayVideo.src) === replaySnapshot.source,
+        "language switch changed replay source");
+      console.assert(replayRequestGeneration === replaySnapshot.requestGeneration,
+        "language switch changed replay request generation");
     }
 
     async function api(path, options = {}) {
+      const {isLogin = false, ...requestOptions} = options;
+      const sessionGeneration = authGeneration;
       const token = localStorage.getItem(tokenKey);
-      const response = await fetch(path, {
-        ...options,
-        headers: {
-          ...(options.body ? {"Content-Type": "application/json"} : {}),
-          ...(token ? {Authorization: `Bearer ${token}`} : {})
-        }
-      });
-      if (!response.ok) {
-        if (response.status === 401) {
-          localStorage.removeItem(tokenKey);
-          setLoggedIn(false);
-        }
-        throw new Error((await response.text()).trim() || `HTTP ${response.status}`);
+      let response;
+      try {
+        response = await fetch(path, {
+          ...requestOptions,
+          headers: {
+            ...(requestOptions.body ? {"Content-Type": "application/json"} : {}),
+            ...(token ? {Authorization: `Bearer ${token}`} : {})
+          }
+        });
+      } catch (error) {
+        setServiceStatus(false);
+        if (!isLogin && sessionGeneration !== authGeneration) throw staleSession;
+        console.error("Admin API network failure", path, error);
+        throw requestError({endpoint: path, status: 0, code: "network_error"});
       }
-      return response.json();
+      setServiceStatus(response.status < 500);
+      if (!isLogin && sessionGeneration !== authGeneration) throw staleSession;
+      if (!response.ok) {
+        const detail = await response.text().catch((error) => {
+          console.error("Admin API error body read failed", path, error);
+          return "";
+        });
+        if (!isLogin && sessionGeneration !== authGeneration) throw staleSession;
+        console.error("Admin API request failed", {
+          endpoint: path,
+          status: response.status,
+          detail
+        });
+        if (response.status === 401) {
+          clearSession();
+          if (!isLogin) throw staleSession;
+        }
+        throw requestError({
+          endpoint: path,
+          status: response.status,
+          code: `http_${response.status}`
+        });
+      }
+      let result;
+      try {
+        result = await response.json();
+      } catch (error) {
+        if (!isLogin && sessionGeneration !== authGeneration) throw staleSession;
+        console.error("Admin API response parse failed", path, error);
+        throw requestError({endpoint: path, status: response.status, code: "invalid_response"});
+      }
+      if (!isLogin && sessionGeneration !== authGeneration) throw staleSession;
+      return result;
+    }
+
+    async function loadSettings() {
+      try {
+        const settings = await api("/admin/api/settings");
+        currentSettings = settings;
+        document.querySelector("#public-base-url").value = settings.public_base_url || "";
+        document.querySelector("#listen-addr").value = settings.listen_addr || "127.0.0.1:18780";
+        document.querySelector("#allow-lan").checked = !!settings.allow_lan;
+        applyMapSettings(settings);
+        setLocalizedText(
+          document.querySelector("#settings-status"),
+          settings.configured ? "settings.configured" : "settings.notConfigured"
+        );
+        renderOverview();
+      } catch (error) {
+        if (error === staleSession) return;
+        setLocalizedError(document.querySelector("#settings-status"), error, "settings.readFailed");
+      }
+    }
+
+    function applyMapSettings(settings) {
+      mapSettings = {
+        map_provider: settings.map_provider || "none",
+        map_web_key: settings.map_web_key || "",
+        map_security_code: settings.map_security_code || ""
+      };
+      document.querySelector("#map-provider").value = mapSettings.map_provider;
+      document.querySelector("#map-web-key").value = mapSettings.map_web_key;
+      document.querySelector("#map-security-code").value = mapSettings.map_security_code;
+      document.querySelector("#map-security-code-field").hidden = mapSettings.map_provider !== "amap";
+    }
+
+    function reconcileDevices(devices) {
+      const deviceIDs = new Set(devices.map((device) => device.dongle_id));
+      for (const dongleID of appState.routesByDevice.keys()) {
+        if (!deviceIDs.has(dongleID)) appState.routesByDevice.delete(dongleID);
+      }
+      appState.devices = devices;
+      if (appState.selectedDongleID && !deviceIDs.has(appState.selectedDongleID)) {
+        appState.selectedDongleID = "";
+        appState.selectedRoute = "";
+        document.querySelector('#primary-nav [data-view="routes"]').disabled = true;
+        if (appState.view === "routes" || appState.view === "replay") setView("devices");
+        clearRouteBrowserState();
+      }
     }
 
     async function loadDevices() {
-      message.textContent = "";
+      clearLocalizedText(workspaceStatus);
       try {
         const devices = await api("/admin/api/devices");
-        deviceList.replaceChildren(...devices.map(renderDevice));
+        reconcileDevices(devices);
+        renderDeviceList();
+        const online = devices.filter((device) => device.online).length;
+        document.querySelector("#online-device-count").textContent = `${online} / ${devices.length}`;
+        renderOverview();
+        if (appState.view === "overview") await loadOverviewRoutes();
       } catch (error) {
-        message.textContent = `加载失败：${error.message}`;
+        if (error === staleSession) return;
+        setLocalizedError(workspaceStatus, error, "errors.loadFailed");
       }
+    }
+
+    async function loadOverviewRoutes() {
+      if (appState.view !== "overview") return;
+      const routeGeneration = routeRequestGeneration;
+      const missing = appState.devices.filter((device) => !appState.routesByDevice.has(device.dongle_id));
+      const results = await Promise.allSettled(missing.map(async (device) => ({
+        device,
+        routes: await api(`/admin/api/devices/${encodeURIComponent(device.dongle_id)}/routes`)
+      })));
+      if (routeGeneration !== routeRequestGeneration || appState.view !== "overview") return;
+      for (const result of results) {
+        if (result.status === "fulfilled") {
+          appState.routesByDevice.set(result.value.device.dongle_id, result.value.routes);
+        }
+      }
+      renderOverview();
+    }
+
+    function renderOverview() {
+      const online = appState.devices.filter((device) => device.online).length;
+      const routes = [];
+      for (const [dongleID, deviceRoutes] of appState.routesByDevice) {
+        for (const route of deviceRoutes) {
+          routes.push({
+            dongleID,
+            route: route.route,
+            createdAt: Number(route.created_at) || 0,
+            order: routes.length
+          });
+        }
+      }
+      routes.sort((a, b) => (b.createdAt - a.createdAt) || (a.order - b.order));
+      document.querySelector("#overview-devices").textContent = `${online} / ${appState.devices.length}`;
+      document.querySelector("#overview-routes").textContent = routes.length;
+      document.querySelector("#overview-lan").textContent = currentSettings.allow_lan
+        ? i18n.t("overview.lanEnabled")
+        : i18n.t("overview.lanDisabled");
+      const mapProviderKey = {
+        none: "settings.mapNone",
+        amap: "settings.mapAmap",
+        tencent: "settings.mapTencent"
+      }[mapSettings.map_provider];
+      document.querySelector("#overview-map").textContent = mapProviderKey
+        ? i18n.t(mapProviderKey)
+        : mapSettings.map_provider;
+      document.querySelector("#recent-routes").replaceChildren(...routes.slice(0, 5).map((item) => {
+        const entry = document.createElement("li");
+        entry.textContent = `${item.route} · ${item.dongleID}`;
+        return entry;
+      }));
+    }
+
+    function renderDeviceList() {
+      if (appState.devices.length) {
+        deviceList.replaceChildren(...appState.devices.map(renderDevice));
+        return;
+      }
+      const row = document.createElement("tr");
+      const cell = document.createElement("td");
+      cell.colSpan = 3;
+      setLocalizedText(cell, "devices.empty");
+      row.append(cell);
+      deviceList.replaceChildren(row);
     }
 
     function renderDevice(device) {
@@ -84,13 +689,18 @@
       const button = document.createElement("button");
 
       idCell.textContent = device.dongle_id;
-      statusCell.textContent = device.online ? "online" : "offline";
+      setLocalizedText(statusCell, device.online ? "status.online" : "status.offline");
       statusCell.className = device.online ? "online" : "offline";
       const routesButton = document.createElement("button");
-      routesButton.textContent = "浏览行程";
-      routesButton.addEventListener("click", () => loadRoutes(device.dongle_id));
+      setLocalizedText(routesButton, "devices.viewRoutes");
+      routesButton.addEventListener("click", () => {
+        appState.selectedDongleID = device.dongle_id;
+        document.querySelector('#primary-nav [data-view="routes"]').disabled = false;
+        setView("routes");
+        loadRoutes(device.dongle_id);
+      });
 
-      button.textContent = "开 SSH";
+      setLocalizedText(button, "devices.openSSH");
       button.disabled = !device.online;
       button.addEventListener("click", async () => {
         button.disabled = true;
@@ -103,7 +713,8 @@
           command.textContent = `ssh -p ${result.port} comma@${result.host}`;
           actionCell.append(command);
         } catch (error) {
-          message.textContent = `开启 SSH 失败：${error.message}`;
+          if (error === staleSession) return;
+          setLocalizedError(workspaceStatus, error, "errors.sshFailed");
         } finally {
           button.disabled = false;
         }
@@ -114,13 +725,32 @@
       return row;
     }
 
+    function clearRouteBrowserState() {
+      routeRequestGeneration++;
+      appState.routeRequestGeneration = routeRequestGeneration;
+      routeBrowser.replaceChildren();
+      fileList.replaceChildren();
+      replayEntry.replaceChildren();
+      replayEntry.hidden = true;
+      clearLocalizedText(fileStatus);
+      if (appState.view === "replay") leaveReplay();
+    }
+
     async function loadRoutes(dongleID) {
+      clearRouteBrowserState();
+      const routeGeneration = routeRequestGeneration;
       try {
         const routes = await api(`/admin/api/devices/${encodeURIComponent(dongleID)}/routes`);
+        if (routeGeneration !== routeRequestGeneration) return;
         routeBrowser.replaceChildren();
         const heading = document.createElement("h2");
-        heading.textContent = `${dongleID} 行程`;
+        setLocalizedText(heading, "routes.title", {dongleID});
         routeBrowser.append(heading);
+        if (!routes.length) {
+          const empty = document.createElement("p");
+          setLocalizedText(empty, "routes.empty");
+          routeBrowser.append(empty);
+        }
         for (const route of routes) {
           const button = document.createElement("button");
           button.textContent = route.route;
@@ -128,16 +758,30 @@
           routeBrowser.append(button, " ");
         }
       } catch (error) {
-        message.textContent = `加载行程失败：${error.message}`;
+        if (error === staleSession) return;
+        if (routeGeneration !== routeRequestGeneration) return;
+        setLocalizedError(workspaceStatus, error, "routes.loadFailed");
       }
     }
 
     async function loadSegments(dongleID, route) {
-      try {
-        const base = `/admin/api/devices/${encodeURIComponent(dongleID)}/routes/${encodeURIComponent(route)}`;
-        const segments = await api(`${base}/segments`);
+      const routeGeneration = ++routeRequestGeneration;
+      appState.routeRequestGeneration = routeRequestGeneration;
+      appState.selectedRoute = route;
+      if (appState.view === "replay") leaveReplay();
+      const base = `/admin/api/devices/${encodeURIComponent(dongleID)}/routes/${encodeURIComponent(route)}`;
+      fileList.replaceChildren();
+      replayEntry.hidden = true;
+      setLocalizedText(fileStatus, "routes.loadingFiles");
+      const [filesResult, replayResult] = await Promise.allSettled([
+        api(`${base}/segments`),
+        api(`${base}/replay`)
+      ]);
+      if (routeGeneration !== routeRequestGeneration) return;
+
+      if (filesResult.status === "fulfilled") {
         const list = document.createElement("ul");
-        for (const segment of segments) {
+        for (const segment of filesResult.value) {
           const item = document.createElement("li");
           const link = document.createElement("a");
           const relativePath = segment.path.slice(route.length + 1);
@@ -148,17 +792,319 @@
             try {
               await download(`${base}/files/${encodePath(relativePath)}`, relativePath.split("/").pop());
             } catch (error) {
-              message.textContent = `下载失败：${error.message}`;
+              if (error === staleSession) return;
+              setLocalizedError(workspaceStatus, error, "routes.downloadFailed");
             }
           });
           item.append(link);
           list.append(item);
         }
-        routeBrowser.querySelector("ul")?.remove();
-        routeBrowser.append(list);
-      } catch (error) {
-        message.textContent = `加载文件失败：${error.message}`;
+        fileList.replaceChildren(list);
+        clearLocalizedText(fileStatus);
+      } else {
+        setLocalizedError(fileStatus, filesResult.reason, "routes.loadFilesFailed");
       }
+
+      if (replayResult.status === "fulfilled") {
+        const summary = replayResult.value;
+        const playableSegments = summary.segments.filter((segment) => segment.has_video);
+        const telemetrySegments = summary.segments.filter((segment) => segment.has_telemetry);
+        if (playableSegments.length > 0 || telemetrySegments.length > 0) {
+          const button = document.createElement("button");
+          button.type = "button";
+          setLocalizedText(button, playableSegments.length > 0
+            ? "routes.playOnline"
+            : "routes.viewTelemetry");
+          button.addEventListener("click", () => openReplay(dongleID, route, base, summary, button));
+          replayEntry.replaceChildren(button);
+          replayEntry.hidden = false;
+        }
+      } else {
+        const error = document.createElement("span");
+        setLocalizedError(error, replayResult.reason, "routes.replaySummaryFailed");
+        replayEntry.replaceChildren(error);
+        replayEntry.hidden = false;
+      }
+    }
+
+    function openReplay(dongleID, route, base, summary, trigger) {
+      const playableSegments = summary.segments.filter((segment) => segment.has_video);
+      const selectableSegments = summary.segments.filter((segment) => segment.has_video || segment.has_telemetry);
+      replayTrigger = trigger;
+      replayContext = {
+        dongleID,
+        route,
+        base,
+        summary,
+        playableSegments,
+        selectableSegments,
+        runtimeTelemetryErrors: new Set()
+      };
+      document.querySelector("#replay-title").textContent = route;
+      replayMode.querySelector('option[value="route"]').disabled = playableSegments.length === 0;
+      replayMode.value = playableSegments.length ? "route" : "segment";
+      renderReplayOptions();
+      setView("replay");
+      renderSegmentStrip();
+      updateReplayControls();
+      document.querySelector("#replay-title").focus();
+      loadReplaySource();
+      telemetry.open(replayContext, replayMode.value, replaySegment.value);
+    }
+
+    function renderReplayOptions() {
+      if (!replayContext) return;
+      const selected = replaySegment.value;
+      replaySegment.replaceChildren(...replayContext.selectableSegments.map((segment) => {
+        const option = document.createElement("option");
+        option.value = segment.number;
+        setLocalizedText(option,
+          segment.has_video ? "replay.segmentLabel" : "replay.segmentTelemetryOnly", {
+          number: segment.number
+        });
+        return option;
+      }));
+      if ([...replaySegment.options].some((option) => option.value === selected)) {
+        replaySegment.value = selected;
+      }
+    }
+
+    function leaveReplay() {
+      const trigger = replayTrigger;
+      replayTrigger = null;
+      replayRequestGeneration++;
+      clearReplaySource();
+      telemetry.cleanup();
+      replayContext = null;
+      replayView.hidden = true;
+      routeBrowser.hidden = false;
+      fileView.hidden = false;
+      if (trigger && trigger.isConnected) trigger.focus();
+    }
+
+    function clearTicketRefresh() {
+      if (ticketRefreshTimer !== null) {
+        clearTimeout(ticketRefreshTimer);
+        ticketRefreshTimer = null;
+      }
+    }
+
+    function clearReplaySource() {
+      clearTicketRefresh();
+      telemetry.clearFragmentMapping();
+      if (hlsInstance) {
+        hlsInstance.destroy();
+        hlsInstance = null;
+      }
+      replayVideo.pause();
+      replayVideo.removeAttribute("src");
+      replayVideo.load();
+    }
+
+    async function loadReplaySource(refresh = false) {
+      if (!replayContext) return;
+      const generation = ++replayRequestGeneration;
+      const resumeTime = refresh ? replayVideo.currentTime : 0;
+      const resumePlaying = refresh && !replayVideo.paused && !replayVideo.ended;
+      clearReplaySource();
+      replayRetry.hidden = true;
+      replaySkipSegment.hidden = true;
+      failedReplaySegment = null;
+      if (replayMode.value === "segment" && !selectedSegmentHasVideo()) {
+        setLocalizedText(replayStatus, "replay.noVideo");
+        document.querySelector("#replay-current-time").textContent = "00:00";
+        return;
+      }
+      setLocalizedText(replayStatus, "replay.requestingTicket");
+
+      const segmentNumber = Number(replaySegment.value);
+      const body = replayMode.value === "route"
+        ? JSON.stringify({mode: "route"})
+        : JSON.stringify({mode: "segment", segment: segmentNumber});
+      try {
+        const ticket = await api(`${replayContext.base}/media-ticket`, {method: "POST", body});
+        if (generation !== replayRequestGeneration || !replayContext) return;
+        if (attachReplaySource(ticket.playlist_url, resumeTime, resumePlaying, generation)) {
+          scheduleTicketRefresh(ticket.expires_at);
+        }
+      } catch (error) {
+        if (error === staleSession) return;
+        if (generation !== replayRequestGeneration) return;
+        showReplayError(error, "replay.ticketFailed");
+      }
+    }
+
+    function selectedSegmentHasVideo() {
+      if (!replayContext) return false;
+      const number = Number(replaySegment.value);
+      return replayContext.summary.segments.some((segment) =>
+        segment.number === number && segment.has_video);
+    }
+
+    function attachReplaySource(url, resumeTime, resumePlaying, generation) {
+      const restorePlayback = () => {
+        if (generation !== replayRequestGeneration) return;
+        if (resumeTime > 0) replayVideo.currentTime = resumeTime;
+        if (resumePlaying) replayVideo.play().catch(() => {});
+      };
+      replayVideo.addEventListener("loadedmetadata", restorePlayback, {once: true});
+
+      if (replayVideo.canPlayType("application/vnd.apple.mpegurl")) {
+        replayVideo.src = url;
+      } else if (window.Hls && Hls.isSupported()) {
+        hlsInstance = new Hls();
+        hlsInstance.on(Hls.Events.BUFFER_APPENDED, (_event, data) => {
+          if (generation === replayRequestGeneration) {
+            telemetry.updateFragmentTiming(data.frag, fragmentPlayableSegments());
+          }
+        });
+        hlsInstance.on(Hls.Events.ERROR, (_event, data) => {
+          if (data.fatal && generation === replayRequestGeneration) {
+            console.error("HLS fatal playback failure", data);
+            const failedSegment = failedSegmentFromFragment(data.frag);
+            if (failedSegment === null) {
+              showReplayError(null, "replay.hlsFailed");
+            } else {
+              failedReplaySegment = failedSegment;
+              setLocalizedText(replayStatus, "replay.fragmentFailed", {
+                segment: failedSegment
+              });
+              replayRetry.hidden = false;
+              replaySkipSegment.hidden = !nextPlayableSegment(failedSegment);
+            }
+          }
+        });
+        hlsInstance.loadSource(url);
+        hlsInstance.attachMedia(replayVideo);
+      } else {
+        showReplayError(null, "replay.hlsUnsupported");
+        return false;
+      }
+      setLocalizedText(replayStatus, "replay.playerReady");
+      return true;
+    }
+
+    function scheduleTicketRefresh(expiresAt) {
+      clearTicketRefresh();
+      const delay = Math.max(1000, Date.parse(expiresAt) - Date.now() - 60000);
+      ticketRefreshTimer = setTimeout(() => loadReplaySource(true), delay);
+    }
+
+    function showReplayError(error, fallbackKey) {
+      failedReplaySegment = null;
+      setLocalizedError(replayStatus, error, fallbackKey);
+      replayRetry.hidden = false;
+      replaySkipSegment.hidden = true;
+    }
+
+    function failedSegmentFromFragment(frag) {
+      if (!frag || !replayContext) return null;
+      const match = String(frag.url || "").match(/(?:^|\/)(\d+)\.ts(?:$|[?#])/);
+      if (match) return Number(match[1]);
+      if (Number.isInteger(frag.sn)) {
+        if (replayMode.value === "segment") return Number(replaySegment.value);
+        const sorted = [...replayContext.playableSegments].sort((a, b) => a.number - b.number);
+        return sorted[frag.sn]?.number ?? null;
+      }
+      return null;
+    }
+
+    function fragmentPlayableSegments() {
+      if (!replayContext) return [];
+      const selected = Number(replaySegment.value);
+      return replayContext.summary.segments
+        .filter((segment) => segment.has_video &&
+          (replayMode.value === "route" || segment.number === selected))
+        .sort((a, b) => a.number - b.number)
+        .map((segment) => ({number: segment.number, duration: segment.duration}));
+    }
+
+    function nextPlayableSegment(number) {
+      if (!replayContext) return null;
+      return [...replayContext.playableSegments]
+        .sort((a, b) => a.number - b.number)
+        .find((segment) => segment.number > number) || null;
+    }
+
+    function updateReplayControls() {
+      if (!replayContext) return;
+      const single = replayMode.value === "segment";
+      replaySegment.disabled = !single;
+      document.querySelector("#previous-segment").disabled = !single || replaySegment.selectedIndex <= 0;
+      document.querySelector("#next-segment").disabled = !single || replaySegment.selectedIndex >= replaySegment.options.length - 1;
+      setLocalizedText(document.querySelector("#replay-selection"),
+        single ? "replay.singleSegment" : "replay.wholeRoute",
+        single ? {number: replaySegment.value} : undefined);
+      renderSegmentStrip();
+    }
+
+    function renderSegmentStrip() {
+      if (!replayContext) return;
+      const strip = document.querySelector("#segment-strip");
+      const failedSegments = replayContext.summary.segments
+        .filter((segment) => segment.telemetry_error ||
+          replayContext.runtimeTelemetryErrors.has(segment.number))
+        .map((segment) => segment.number);
+      const telemetryStatus = document.querySelector("#telemetry-segment-status");
+      if (failedSegments.length) {
+        const params = {
+          count: failedSegments.length,
+          segments: failedSegments.join(", ")
+        };
+        telemetryStatus.dataset.i18n = "telemetry.failedSegments";
+        telemetryStatus.dataset.i18nParams = JSON.stringify(params);
+        telemetryStatus.textContent = i18n.t("telemetry.failedSegments", {
+          count: failedSegments.length,
+          segments: failedSegments.join(", ")
+        });
+      } else {
+        clearLocalizedText(telemetryStatus);
+      }
+      strip.replaceChildren(...replayContext.summary.segments.map((segment) => {
+        if (!segment.has_video && !segment.has_telemetry) {
+          const gap = document.createElement("span");
+          gap.textContent = segment.number;
+          setLocalizedTitle(gap, "replay.segmentMissingBoth", {number: segment.number});
+          return gap;
+        }
+        const button = document.createElement("button");
+        button.type = "button";
+        button.textContent = segment.number;
+        setLocalizedTitle(button,
+          segment.has_video ? "replay.playSegment" : "replay.viewSegmentTelemetry",
+          {number: segment.number});
+        const runtimeError = replayContext.runtimeTelemetryErrors.has(segment.number);
+        const errorCode = runtimeError ? "telemetry_load_failed" : segment.telemetry_error;
+        button.dataset.telemetryError = errorCode ? "true" : "false";
+        if (errorCode) {
+          const key = button.dataset.i18nTitle;
+          const params = JSON.parse(button.dataset.i18nTitleParams);
+          button.title = i18n.t(key, params) +
+            i18n.t("replay.telemetryUnavailable", {code: errorCode});
+          button.dataset.i18nTitleSuffix = "replay.telemetryUnavailable";
+          button.dataset.i18nTitleSuffixParams = JSON.stringify({code: errorCode});
+        }
+        button.setAttribute("aria-current", replayMode.value === "segment" && Number(replaySegment.value) === segment.number);
+        button.addEventListener("click", () => {
+          replayMode.value = "segment";
+          replaySegment.value = segment.number;
+          updateReplayControls();
+          loadReplaySource();
+          telemetry.selectionChanged(replayMode.value, replaySegment.value);
+        });
+        return button;
+      }));
+    }
+
+    function formatTime(seconds) {
+      if (!Number.isFinite(seconds)) return "00:00";
+      const value = Math.max(0, Math.floor(seconds));
+      const hours = Math.floor(value / 3600);
+      const minutes = Math.floor((value % 3600) / 60);
+      const secs = value % 60;
+      return hours
+        ? `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`
+        : `${String(minutes).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
     }
 
     function encodePath(path) {
@@ -166,44 +1112,167 @@
     }
 
     async function download(path, name) {
-      const response = await fetch(path, {
-        headers: {Authorization: `Bearer ${localStorage.getItem(tokenKey)}`}
-      });
-      if (!response.ok) throw new Error((await response.text()).trim() || `HTTP ${response.status}`);
-      const href = URL.createObjectURL(await response.blob());
-      const link = document.createElement("a");
-      link.href = href;
-      link.download = name;
-      link.click();
-      URL.revokeObjectURL(href);
+      const downloadGeneration = authGeneration;
+      try {
+        const response = await fetch(path, {
+          headers: {Authorization: `Bearer ${localStorage.getItem(tokenKey)}`}
+        });
+        if (downloadGeneration !== authGeneration) throw staleSession;
+        if (response.status === 401) {
+          clearSession();
+          throw staleSession;
+        }
+        if (!response.ok) {
+          const detail = await response.text().catch(() => "");
+          console.error("Admin download failed", {
+            endpoint: path,
+            status: response.status,
+            detail
+          });
+          throw requestError({
+            endpoint: path,
+            status: response.status,
+            code: `http_${response.status}`
+          });
+        }
+        const blob = await response.blob();
+        if (downloadGeneration !== authGeneration) throw staleSession;
+        const href = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = href;
+        link.download = name;
+        link.click();
+        URL.revokeObjectURL(href);
+      } catch (error) {
+        if (downloadGeneration !== authGeneration) throw staleSession;
+        if (error === staleSession || error?.endpoint) throw error;
+        console.error("Admin download network failure", path, error);
+        throw requestError({endpoint: path, status: 0, code: "network_error"});
+      }
     }
 
     loginForm.addEventListener("submit", async (event) => {
       event.preventDefault();
-      message.textContent = "";
+      clearLocalizedText(message);
       try {
         const result = await api("/admin/api/login", {
+          isLogin: true,
           method: "POST",
           body: JSON.stringify({password: document.querySelector("#password").value})
         });
+        document.querySelector("#password").value = "";
+        authGeneration++;
         localStorage.setItem(tokenKey, result.token);
         setLoggedIn(true);
+        await loadSettings();
         await loadDevices();
       } catch (error) {
-        message.textContent = `登录失败：${error.message}`;
+        if (error === staleSession) return;
+        setLocalizedError(message, error, "errors.loginFailed");
       }
     });
 
-    document.querySelector("#refresh").addEventListener("click", loadDevices);
-    document.querySelector("#logout").addEventListener("click", () => {
-      localStorage.removeItem(tokenKey);
-      setLoggedIn(false);
-      deviceList.replaceChildren();
-      routeBrowser.replaceChildren();
+    document.querySelector("#save-settings").addEventListener("click", async () => {
+      clearLocalizedText(document.querySelector("#settings-status"));
+      const previousMapConfig = JSON.stringify(mapSettings);
+      try {
+        const settings = await api("/admin/api/settings", {
+          method: "PUT",
+          body: JSON.stringify({
+            public_base_url: document.querySelector("#public-base-url").value,
+            listen_addr: document.querySelector("#listen-addr").value,
+            allow_lan: document.querySelector("#allow-lan").checked,
+            map_provider: document.querySelector("#map-provider").value,
+            map_web_key: document.querySelector("#map-web-key").value,
+            map_security_code: document.querySelector("#map-security-code").value
+          })
+        });
+        document.querySelector("#public-base-url").value = settings.public_base_url || "";
+        document.querySelector("#listen-addr").value = settings.listen_addr || "";
+        document.querySelector("#allow-lan").checked = !!settings.allow_lan;
+        currentSettings = settings;
+        applyMapSettings(settings);
+        document.querySelector("#map-refresh-note").hidden =
+          previousMapConfig === JSON.stringify(mapSettings) || !telemetry.hasLoadedMapSDK();
+        setLocalizedText(
+          document.querySelector("#settings-status"),
+          settings.listen_changed ? "settings.savedListenChanged" : "settings.saved"
+        );
+        renderOverview();
+      } catch (error) {
+        if (error === staleSession) return;
+        setLocalizedError(document.querySelector("#settings-status"), error, "errors.saveFailed");
+      }
     });
 
+    document.querySelector("#allow-lan").addEventListener("change", (event) => {
+      const input = document.querySelector("#listen-addr");
+      const port = (input.value.split(":").pop() || "18780").trim() || "18780";
+      input.value = (event.target.checked ? "0.0.0.0:" : "127.0.0.1:") + port;
+    });
+    document.querySelector("#map-provider").addEventListener("change", (event) => {
+      document.querySelector("#map-security-code-field").hidden = event.target.value !== "amap";
+    });
+
+    document.querySelector("#refresh").addEventListener("click", loadDevices);
+    for (const button of document.querySelectorAll("#primary-nav [data-view]")) {
+      button.addEventListener("click", () => setView(button.dataset.view));
+    }
+    document.querySelector("#language-toggle").addEventListener("click", () => {
+      i18n.setLanguage(i18n.language() === "zh-CN" ? "en" : "zh-CN");
+    });
+    i18n.subscribe(applyLanguage);
+    document.querySelector("#logout").addEventListener("click", clearSession);
+    document.querySelector("#back-to-files").addEventListener("click", () => setView("routes"));
+    replayRetry.addEventListener("click", () => loadReplaySource());
+    replaySkipSegment.addEventListener("click", () => {
+      const next = nextPlayableSegment(failedReplaySegment);
+      if (!next) return;
+      replayMode.value = "segment";
+      replaySegment.value = next.number;
+      updateReplayControls();
+      loadReplaySource();
+      telemetry.selectionChanged(replayMode.value, replaySegment.value);
+    });
+    replayMode.addEventListener("change", () => {
+      updateReplayControls();
+      loadReplaySource();
+      telemetry.selectionChanged(replayMode.value, replaySegment.value);
+    });
+    replaySegment.addEventListener("change", () => {
+      updateReplayControls();
+      loadReplaySource();
+      telemetry.selectionChanged(replayMode.value, replaySegment.value);
+    });
+    document.querySelector("#previous-segment").addEventListener("click", () => {
+      if (replaySegment.selectedIndex > 0) replaySegment.selectedIndex--;
+      updateReplayControls();
+      loadReplaySource();
+      telemetry.selectionChanged(replayMode.value, replaySegment.value);
+    });
+    document.querySelector("#next-segment").addEventListener("click", () => {
+      if (replaySegment.selectedIndex < replaySegment.options.length - 1) replaySegment.selectedIndex++;
+      updateReplayControls();
+      loadReplaySource();
+      telemetry.selectionChanged(replayMode.value, replaySegment.value);
+    });
+    replayVideo.addEventListener("timeupdate", () => {
+      telemetry.syncVideoTime();
+    });
+    replayVideo.addEventListener("seeked", () => telemetry.syncVideoTime());
+    replayVideo.addEventListener("durationchange", () => {
+      telemetry.syncVideoTime();
+    });
+    replayVideo.addEventListener("error", () => {
+      if (replayContext && replayVideo.getAttribute("src")) {
+        showReplayError(null, "replay.nativeHlsFailed");
+      }
+    });
+
+    applyLanguage();
     if (localStorage.getItem(tokenKey)) {
       setLoggedIn(true);
+      loadSettings();
       loadDevices();
     }
   </script>

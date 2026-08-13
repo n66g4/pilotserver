@@ -10,13 +10,17 @@ import (
 	"time"
 
 	"pilotserver/internal/athena"
-	"pilotserver/internal/config"
+	"pilotserver/internal/publicbase"
 )
 
-func handleOpenSSH(w http.ResponseWriter, r *http.Request, hub *athena.Hub, cfg config.Config) {
-	base, err := url.Parse(cfg.PublicBaseURL)
+func handleOpenSSH(w http.ResponseWriter, r *http.Request, hub *athena.Hub, baseURL *publicbase.Resolver) {
+	publicURL := ""
+	if baseURL != nil {
+		publicURL = baseURL.Get()
+	}
+	base, err := url.Parse(publicURL)
 	if err != nil || base.Hostname() == "" {
-		http.Error(w, "invalid public base URL", http.StatusInternalServerError)
+		http.Error(w, "public base URL not configured", http.StatusServiceUnavailable)
 		return
 	}
 	port, _, err := hub.OpenSSHTunnel(context.Background(), r.PathValue("dongleID"))

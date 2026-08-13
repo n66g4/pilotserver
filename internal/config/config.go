@@ -4,7 +4,11 @@ import (
 	"fmt"
 	"net"
 	"os"
+	"path/filepath"
+	"strings"
 )
+
+const DefaultListenAddr = "127.0.0.1:18780"
 
 type Config struct {
 	ListenAddr       string
@@ -19,18 +23,16 @@ type Config struct {
 
 func Load() (Config, error) {
 	cfg := Config{
-		ListenAddr:       envOr("PILOTSERVER_LISTEN", "127.0.0.1:8080"),
+		ListenAddr:       envOr("PILOTSERVER_LISTEN", DefaultListenAddr),
 		DataDir:          envOr("PILOTSERVER_DATA_DIR", "./data"),
-		PublicBaseURL:    os.Getenv("PILOTSERVER_PUBLIC_BASE_URL"),
+		PublicBaseURL:    strings.TrimSpace(os.Getenv("PILOTSERVER_PUBLIC_BASE_URL")),
 		JWTSecret:        os.Getenv("PILOTSERVER_JWT_SECRET"),
 		AdminPassword:    os.Getenv("PILOTSERVER_ADMIN_PASSWORD"),
 		PairingToken:     os.Getenv("PILOTSERVER_PAIRING_TOKEN"),
 		SSHTunnelPortMin: 41000,
 		SSHTunnelPortMax: 41099,
 	}
-	if cfg.PublicBaseURL == "" {
-		return cfg, fmt.Errorf("PILOTSERVER_PUBLIC_BASE_URL required")
-	}
+	// PublicBaseURL may be empty at boot; configure via admin UI or install wizard.
 	if len(cfg.JWTSecret) < 32 {
 		return cfg, fmt.Errorf("PILOTSERVER_JWT_SECRET must be >= 32 bytes")
 	}
@@ -40,15 +42,33 @@ func Load() (Config, error) {
 	if cfg.PairingToken != "" && len(cfg.PairingToken) < 8 {
 		return cfg, fmt.Errorf("PILOTSERVER_PAIRING_TOKEN must be empty or >= 8 bytes")
 	}
-	host, _, err := net.SplitHostPort(cfg.ListenAddr)
-	if err != nil {
-		return cfg, fmt.Errorf("invalid PILOTSERVER_LISTEN: %w", err)
-	}
-	ip := net.ParseIP(host)
-	if (ip == nil || !ip.IsLoopback()) && os.Getenv("PILOTSERVER_ALLOW_NON_LOOPBACK") != "1" {
-		return cfg, fmt.Errorf("PILOTSERVER_LISTEN must be loopback unless PILOTSERVER_ALLOW_NON_LOOPBACK=1")
+	if err := ValidateListenAddr(cfg.ListenAddr, AllowNonLoopback()); err != nil {
+		return cfg, err
 	}
 	return cfg, nil
+}
+
+func AllowNonLoopback() bool {
+	return os.Getenv("PILOTSERVER_ALLOW_NON_LOOPBACK") == "1"
+}
+
+func ValidateListenAddr(addr string, allowNonLoopback bool) error {
+	host, _, err := net.SplitHostPort(strings.TrimSpace(addr))
+	if err != nil {
+		return fmt.Errorf("invalid listen address: %w", err)
+	}
+	ip := net.ParseIP(host)
+	if (ip == nil || !ip.IsLoopback()) && !allowNonLoopback {
+		return fmt.Errorf("listen address must be loopback unless PILOTSERVER_ALLOW_NON_LOOPBACK=1")
+	}
+	return nil
+}
+
+func EnvFilePath(dataDir string) string {
+	if v := os.Getenv("PILOTSERVER_ENV_FILE"); v != "" {
+		return v
+	}
+	return filepath.Join(dataDir, "pilotserver.env")
 }
 
 func envOr(k, def string) string {

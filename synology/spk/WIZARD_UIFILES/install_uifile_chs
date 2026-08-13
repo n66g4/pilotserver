@@ -1,0 +1,49 @@
+[{
+  "step_title": "PilotServer 管理员",
+  "invalid_next_disabled": true,
+  "items": [{
+    "desc": "设置管理后台 /admin/ 登录密码。可选字段可留空，安装后在管理页填写。"
+  }, {
+    "type": "password",
+    "desc": "管理密码（必填，至少 8 位）",
+    "subitems": [{
+      "key": "wizard_admin_password",
+      "desc": "密码",
+      "validator": {
+        "allowBlank": false,
+        "minLength": 8,
+        "maxLength": 128
+      }
+    }]
+  }, {
+    "type": "textfield",
+    "desc": "可选：公网 HTTPS 地址（如 https://xxx.synology.me）。不是配置 DDNS，DDNS 仍用 DSM。",
+    "subitems": [{
+      "key": "wizard_public_base_url",
+      "desc": "公网地址",
+      "validator": {
+        "allowBlank": true,
+        "maxLength": 256
+      }
+    }]
+  }, {
+    "type": "multiselect",
+    "desc": "监听方式。默认仅本机(127.0.0.1)，需经 DSM 反向代理访问；勾选后局域网可直接访问 http://群晖IP:18780/admin/",
+    "subitems": [{
+      "key": "wizard_allow_lan",
+      "desc": "允许局域网直连（监听 0.0.0.0:18780）",
+      "defaultValue": false
+    }]
+  }, {
+    "type": "password",
+    "desc": "可选：配对二次口令 PILOTSERVER_PAIRING_TOKEN。留空则仅校验设备 register JWT。",
+    "subitems": [{
+      "key": "wizard_pairing_token",
+      "desc": "配对口令",
+      "validator": {
+        "allowBlank": true,
+        "maxLength": 128
+      }
+    }]
+  }]
+}]

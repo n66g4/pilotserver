@@ -1,0 +1,14 @@
+[{
+  "step_title": "PilotServer 设置",
+  "items": [{
+    "desc": "可选：调整监听方式。不勾选则保持当前设置不变。"
+  }, {
+    "type": "multiselect",
+    "desc": "勾选后局域网可直接访问 http://群晖IP:18780/admin/（监听 0.0.0.0）。不勾选保持现状；如需关闭请在 /admin/ 里操作。",
+    "subitems": [{
+      "key": "wizard_allow_lan",
+      "desc": "允许局域网直连（监听 0.0.0.0:18780）",
+      "defaultValue": false
+    }]
+  }]
+}]

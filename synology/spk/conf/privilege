@@ -1,5 +1,7 @@
 {
-	"defaults":{
+	"defaults": {
 		"run-as": "package"
-	}
+	},
+	"username": "pilotserver",
+	"groupname": "pilotserver"
 }

@@ -2,7 +2,10 @@ package store
 
 import (
 	"database/sql"
+	"strings"
 	"time"
+
+	"pilotserver/internal/routepath"
 )
 
 const routesSchema = `
@@ -40,6 +43,96 @@ type Segment struct {
 func initRoutes(db *sql.DB) error {
 	_, err := db.Exec(routesSchema)
 	return err
+}
+
+func migrateRouteMetadata(db *sql.DB) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+
+	rows, err := tx.Query(`
+		SELECT s.dongle_id, s.route_name, s.segment_name, s.rel_path, s.uploaded_at,
+		       COALESCE((
+		         SELECT r.created_at FROM routes r
+		         WHERE r.dongle_id = s.dongle_id AND r.name = s.route_name
+		       ), s.uploaded_at)
+		FROM segments s`)
+	if err != nil {
+		return err
+	}
+	type change struct {
+		dongleID     string
+		oldRouteName string
+		routeName    string
+		segmentName  string
+		relPath      string
+		uploadedAt   int64
+		createdAt    int64
+	}
+	var changes []change
+	for rows.Next() {
+		var currentRoute, currentSegment string
+		var candidate change
+		if err := rows.Scan(
+			&candidate.dongleID, &currentRoute, &currentSegment,
+			&candidate.relPath, &candidate.uploadedAt, &candidate.createdAt,
+		); err != nil {
+			rows.Close()
+			return err
+		}
+		parsed, ok := routepath.ParseSegmentFile(candidate.relPath)
+		if !ok || strings.Count(candidate.relPath, "/") != 1 ||
+			currentRoute == parsed.RouteName && currentSegment == parsed.SegmentName {
+			continue
+		}
+		candidate.oldRouteName = currentRoute
+		candidate.routeName = parsed.RouteName
+		candidate.segmentName = parsed.SegmentName
+		candidate.createdAt = min(candidate.createdAt, candidate.uploadedAt)
+		changes = append(changes, candidate)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+
+	for _, change := range changes {
+		if _, err := tx.Exec(`
+			INSERT INTO routes (dongle_id, name, created_at) VALUES (?, ?, ?)
+			ON CONFLICT(dongle_id, name) DO UPDATE SET
+			  created_at = MIN(routes.created_at, excluded.created_at)`,
+			change.dongleID, change.routeName, change.createdAt,
+		); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`
+			UPDATE segments SET route_name = ?, segment_name = ?
+			WHERE dongle_id = ? AND rel_path = ?`,
+			change.routeName, change.segmentName, change.dongleID, change.relPath,
+		); err != nil {
+			return err
+		}
+	}
+	for _, change := range changes {
+		if _, err := tx.Exec(`
+			DELETE FROM routes
+			WHERE dongle_id = ? AND name = ?
+			  AND NOT EXISTS (
+			    SELECT 1 FROM segments
+			    WHERE segments.dongle_id = routes.dongle_id
+			      AND segments.route_name = routes.name
+			  )`,
+			change.dongleID, change.oldRouteName,
+		); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
 }
 
 func (s *Store) InsertSegment(segment Segment) error {

@@ -34,6 +34,10 @@ func Open(dataDir string) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open db: %w", err)
 	}
+	// SQLite permits only one writer. A single connection serializes the short
+	// metadata transactions and prevents intermittent SQLITE_BUSY while uploads
+	// and admin reads happen concurrently.
+	db.SetMaxOpenConns(1)
 
 	schema, err := schemaFS.ReadFile("schema.sql")
 	if err != nil {
@@ -48,8 +52,17 @@ func Open(dataDir string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("apply routes schema: %w", err)
 	}
+	if err := migrateRouteMetadata(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate route metadata: %w", err)
+	}
+	s := &Store{db: db}
+	if err := s.initSettings(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("apply settings schema: %w", err)
+	}
 
-	return &Store{db: db}, nil
+	return s, nil
 }
 
 func (s *Store) Close() error {

@@ -4,3 +4,7 @@ dist/
 *.db
 .superpowers/
 *.spk
+.DS_Store
+.playwright-cli/
+.worktrees/
+output/

@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"pilotserver/internal/adminapi"
 	"pilotserver/internal/athena"
 	"pilotserver/internal/auth"
 	"pilotserver/internal/config"
@@ -59,7 +58,7 @@ func TestOpenSSHReturnsPublicEndpoint(t *testing.T) {
 		hub.HandleJSONRPCResponse([]byte(`{"jsonrpc":"2.0","id":"` + request.ID + `","result":true}`))
 	}})
 	mux := http.NewServeMux()
-	adminapi.Mount(mux, st, hub, cfg, passwordHash)
+	mountAdmin(t, mux, st, hub, cfg, passwordHash)
 
 	token, err := auth.IssueAdminJWT(adminTestSecret, time.Minute)
 	if err != nil {
@@ -113,7 +112,7 @@ func TestOpenSSHFailsOnDeviceRPCError(t *testing.T) {
 			`","error":{"code":-32000,"message":"proxy failed"}}`))
 	}})
 	mux := http.NewServeMux()
-	adminapi.Mount(mux, st, hub, cfg, passwordHash)
+	mountAdmin(t, mux, st, hub, cfg, passwordHash)
 	token, err := auth.IssueAdminJWT(adminTestSecret, time.Minute)
 	if err != nil {
 		t.Fatal(err)

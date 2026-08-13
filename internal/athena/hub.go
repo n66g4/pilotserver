@@ -39,6 +39,7 @@ type Hub struct {
 
 	tunnelMu     sync.Mutex
 	tunnelConfig config.Config
+	baseURL      func() string
 	proxyTickets map[string]*proxyBridge
 }
 
@@ -52,6 +53,12 @@ func NewHub(configs ...config.Config) *Hub {
 		h.tunnelConfig = configs[0]
 	}
 	return h
+}
+
+func (h *Hub) SetBaseURLProvider(get func() string) {
+	h.tunnelMu.Lock()
+	h.baseURL = get
+	h.tunnelMu.Unlock()
 }
 
 func (h *Hub) SetOnline(dongleID string, conn Conn) uint64 {

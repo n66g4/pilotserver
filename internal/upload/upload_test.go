@@ -21,6 +21,7 @@ import (
 
 	"pilotserver/internal/api"
 	"pilotserver/internal/config"
+	"pilotserver/internal/publicbase"
 	"pilotserver/internal/store"
 	"pilotserver/internal/upload"
 )
@@ -99,8 +100,12 @@ func TestUploadURLPutAndListRoutes(t *testing.T) {
 		PublicBaseURL: "https://uploads.example.test",
 		JWTSecret:     testSecret,
 	}
+	base, err := publicbase.New(st, cfg.PublicBaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
 	mux := http.NewServeMux()
-	api.New(st, cfg).Mount(mux)
+	api.New(st, cfg, base).Mount(mux)
 	upload.Mount(mux, st, cfg)
 	server := httptest.NewServer(mux)
 	defer server.Close()
@@ -187,6 +192,53 @@ func TestUploadURLPutAndListRoutes(t *testing.T) {
 	}
 }
 
+func TestUploadTwoLevelDragonPilotPathWritesCanonicalMetadata(t *testing.T) {
+	dataDir := t.TempDir()
+	st, err := store.Open(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	cfg := config.Config{DataDir: dataDir, JWTSecret: testSecret}
+	mux := http.NewServeMux()
+	upload.Mount(mux, st, cfg)
+
+	const (
+		dongleID = "dongle-1"
+		route    = "00000010--2cbbf69c9f"
+		relPath  = route + "--12/qcamera.ts"
+	)
+	token, err := upload.Sign(testSecret, upload.Claim{
+		DongleID: dongleID,
+		RelPath:  relPath,
+		Exp:      time.Now().Add(time.Hour).Unix(),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPut, "/upload/put/"+token, bytes.NewBufferString("video"))
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+
+	segments, err := st.ListSegments(dongleID, route)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(segments) != 1 {
+		t.Fatalf("segments = %+v", segments)
+	}
+	got := segments[0]
+	if got.RouteName != route || got.SegmentName != "12" || got.RelPath != relPath {
+		t.Fatalf("segment metadata = %+v", got)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "uploads", dongleID, filepath.FromSlash(relPath))); err != nil {
+		t.Fatalf("physical two-level path changed: %v", err)
+	}
+}
+
 func TestUploadURLRejectsPathTraversal(t *testing.T) {
 	dataDir := t.TempDir()
 	st, err := store.Open(dataDir)
@@ -200,8 +252,12 @@ func TestUploadURLRejectsPathTraversal(t *testing.T) {
 		PublicBaseURL: "https://uploads.example.test",
 		JWTSecret:     testSecret,
 	}
+	base, err := publicbase.New(st, cfg.PublicBaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
 	mux := http.NewServeMux()
-	api.New(st, cfg).Mount(mux)
+	api.New(st, cfg, base).Mount(mux)
 
 	token := storeDeviceAndSignJWT(t, st, "dongle-1")
 	request := authorizedRequest(t, http.MethodPost,

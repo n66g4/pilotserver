@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"pilotserver/internal/config"
+	"pilotserver/internal/routepath"
 	"pilotserver/internal/store"
 )
 
@@ -83,13 +84,18 @@ func (h *Handler) put(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	parts := strings.Split(claim.RelPath, "/")
+	routeName := parts[0]
 	segmentName := parts[0]
 	if len(parts) > 2 {
 		segmentName = parts[1]
 	}
+	if parsed, ok := routepath.ParseSegmentFile(claim.RelPath); ok {
+		routeName = parsed.RouteName
+		segmentName = parsed.SegmentName
+	}
 	if err := h.store.InsertSegment(store.Segment{
 		DongleID:    claim.DongleID,
-		RouteName:   parts[0],
+		RouteName:   routeName,
 		SegmentName: segmentName,
 		RelPath:     claim.RelPath,
 		Size:        size,

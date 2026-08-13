@@ -1,47 +1,93 @@
 #!/bin/sh
 . "$(dirname "$0")/_common"
 
+log() {
+	mkdir -p "${PILOTSERVER_VAR}" 2>/dev/null || true
+	echo "$(date '+%Y-%m-%d %H:%M:%S') $*" >> "${PILOTSERVER_INSTALL_LOG}" 2>/dev/null || true
+}
+
+fail() {
+	log "FAIL: $*"
+	if [ -n "${SYNOPKG_TEMP_LOGFILE:-}" ]; then
+		echo "$*" > "${SYNOPKG_TEMP_LOGFILE}"
+	fi
+	echo "$*" >&2
+	exit 1
+}
+
+# Single-quote for shell sourcing; escapes embedded single quotes.
+sq() {
+	printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"
+}
+
+set_env_var() {
+	# set_env_var KEY VALUE : replace-or-append quoted assignment in env file
+	_k="$1"; _v="$2"
+	grep -v "^${_k}=" "${PILOTSERVER_ENV_FILE}" > "${PILOTSERVER_ENV_FILE}.new" 2>/dev/null || true
+	echo "${_k}=$(sq "${_v}")" >> "${PILOTSERVER_ENV_FILE}.new"
+	mv "${PILOTSERVER_ENV_FILE}.new" "${PILOTSERVER_ENV_FILE}"
+}
+
 mkdir -p "${PILOTSERVER_DATA_DEFAULT}/uploads" \
 	"${PILOTSERVER_DATA_DEFAULT}/ota/files" \
-	"${PILOTSERVER_VAR}"
+	"${PILOTSERVER_VAR}" || fail "cannot create data dirs under ${PILOTSERVER_VAR}"
+
+log "postinst begin dest=${SYNOPKG_PKGDEST:-} var=${SYNOPKG_PKGVAR:-}"
+log "wizard_admin_password set=$([ -n "${wizard_admin_password:-}" ] && echo yes || echo no)"
+log "wizard_public_base_url set=$([ -n "${wizard_public_base_url:-}" ] && echo yes || echo no)"
 
 # Generate secrets once; PUBLIC_BASE_URL left for admin to fill (DSM DDNS/reverse proxy).
 if [ ! -f "${PILOTSERVER_ENV_FILE}" ]; then
-	JWT_SECRET="$(/bin/dd if=/dev/urandom bs=32 count=1 2>/dev/null | /usr/bin/od -An -tx1 | /bin/tr -d ' \n')"
+	JWT_SECRET="$(dd if=/dev/urandom bs=32 count=1 2>/dev/null | od -An -tx1 2>/dev/null | tr -d ' \n')"
 	if [ -z "${JWT_SECRET}" ] || [ "${#JWT_SECRET}" -lt 32 ]; then
-		JWT_SECRET="$(/bin/date +%s%N)-pilotserver-change-me-please-32b"
+		JWT_SECRET="pilotserver-$(date +%s)-change-me-please-32bytes"
 	fi
 
-	ADMIN_PASS="${wizard_admin_password}"
+	ADMIN_PASS="${wizard_admin_password:-}"
 	if [ -z "${ADMIN_PASS}" ]; then
-		echo "wizard_admin_password missing" >&2
-		exit 1
+		fail "管理密码未传入安装脚本（wizard_admin_password 为空）。请重新安装并填写管理密码。"
 	fi
 
 	umask 077
 	{
-		echo "# Edit PUBLIC_BASE_URL to match DSM reverse-proxy HTTPS hostname (not DDNS settings UI)."
-		echo "PILOTSERVER_PUBLIC_BASE_URL="
-		echo "PILOTSERVER_JWT_SECRET=${JWT_SECRET}"
-		echo "PILOTSERVER_ADMIN_PASSWORD=${ADMIN_PASS}"
-		echo "PILOTSERVER_LISTEN=127.0.0.1:8080"
-		echo "PILOTSERVER_DATA_DIR=${PILOTSERVER_DATA_DEFAULT}"
-		if [ -n "${wizard_pairing_token}" ]; then
-			echo "PILOTSERVER_PAIRING_TOKEN=${wizard_pairing_token}"
-		fi
-	} > "${PILOTSERVER_ENV_FILE}"
-else
-	# Upgrade: refresh admin password if wizard provided one
-	if [ -n "${wizard_admin_password}" ]; then
-		if /bin/grep -q '^PILOTSERVER_ADMIN_PASSWORD=' "${PILOTSERVER_ENV_FILE}"; then
-			/bin/sed -i "s|^PILOTSERVER_ADMIN_PASSWORD=.*|PILOTSERVER_ADMIN_PASSWORD=${wizard_admin_password}|" "${PILOTSERVER_ENV_FILE}"
+		echo "# PUBLIC_BASE_URL: set in wizard, or later via /admin/ settings (preferred)."
+		echo "# DDNS itself is managed by DSM; this is only the public HTTPS origin."
+		echo "PILOTSERVER_PUBLIC_BASE_URL=$(sq "${wizard_public_base_url:-}")"
+		echo "PILOTSERVER_JWT_SECRET=$(sq "${JWT_SECRET}")"
+		echo "PILOTSERVER_ADMIN_PASSWORD=$(sq "${ADMIN_PASS}")"
+		if [ "${wizard_allow_lan:-false}" = "true" ]; then
+			echo "PILOTSERVER_LISTEN=0.0.0.0:18780"
+			echo "PILOTSERVER_ALLOW_NON_LOOPBACK=1"
 		else
-			echo "PILOTSERVER_ADMIN_PASSWORD=${wizard_admin_password}" >> "${PILOTSERVER_ENV_FILE}"
+			echo "PILOTSERVER_LISTEN=127.0.0.1:18780"
 		fi
+		echo "PILOTSERVER_DATA_DIR=$(sq "${PILOTSERVER_DATA_DEFAULT}")"
+		if [ -n "${wizard_pairing_token:-}" ]; then
+			echo "PILOTSERVER_PAIRING_TOKEN=$(sq "${wizard_pairing_token}")"
+		fi
+	} > "${PILOTSERVER_ENV_FILE}" || fail "cannot write ${PILOTSERVER_ENV_FILE}"
+	log "wrote new env ${PILOTSERVER_ENV_FILE}"
+else
+	# Upgrade: refresh values if wizard provided them
+	if [ -n "${wizard_admin_password:-}" ]; then
+		set_env_var PILOTSERVER_ADMIN_PASSWORD "${wizard_admin_password}"
 	fi
+	if [ -n "${wizard_public_base_url:-}" ]; then
+		set_env_var PILOTSERVER_PUBLIC_BASE_URL "${wizard_public_base_url}"
+	fi
+	if [ "${wizard_allow_lan:-}" = "true" ]; then
+		set_env_var PILOTSERVER_LISTEN "0.0.0.0:18780"
+		set_env_var PILOTSERVER_ALLOW_NON_LOOPBACK "1"
+	fi
+	log "updated existing env ${PILOTSERVER_ENV_FILE}"
 fi
 
 chmod 600 "${PILOTSERVER_ENV_FILE}" 2>/dev/null || true
 chmod 755 "${PILOTSERVER_BIN}" 2>/dev/null || true
 
+if [ ! -x "${PILOTSERVER_BIN}" ]; then
+	fail "binary missing or not executable: ${PILOTSERVER_BIN}"
+fi
+
+log "postinst ok"
 exit 0

@@ -12,14 +12,63 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"testing"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
 
 	"pilotserver/internal/config"
+	"pilotserver/internal/publicbase"
 	"pilotserver/internal/store"
 )
+
+func newTestAPI(t *testing.T, st *store.Store, cfg config.Config) *API {
+	t.Helper()
+	base, err := publicbase.New(st, cfg.PublicBaseURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return New(st, cfg, base)
+}
+
+// openpilot's registration.py sends fields as query parameters with an empty body.
+func TestPairAcceptsQueryParams(t *testing.T) {
+	st, err := store.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	api := newTestAPI(t, st, config.Config{
+		JWTSecret: "test-secret-at-least-thirty-two-bytes",
+	})
+	mux := http.NewServeMux()
+	api.Mount(mux)
+
+	privateKey, publicKey := testKeyPair(t)
+	form := url.Values{}
+	form.Set("imei", "123456789012345")
+	form.Set("serial", "serial-1")
+	form.Set("public_key", publicKey)
+	form.Set("register_token", signRegisterToken(t, privateKey, true))
+
+	req := httptest.NewRequest(http.MethodPost, PairPath+"?"+form.Encode(), nil)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf("pair status = %d, body %s", rec.Code, rec.Body.String())
+	}
+	var pair struct {
+		DongleID string `json:"dongle_id"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&pair); err != nil {
+		t.Fatal(err)
+	}
+	if pair.DongleID == "" {
+		t.Fatal("missing dongle_id")
+	}
+}
 
 func TestPairAndMe(t *testing.T) {
 	st, err := store.Open(t.TempDir())
@@ -28,7 +77,7 @@ func TestPairAndMe(t *testing.T) {
 	}
 	defer st.Close()
 
-	api := New(st, config.Config{
+	api := newTestAPI(t, st, config.Config{
 		JWTSecret:    "test-secret-at-least-thirty-two-bytes",
 		PairingToken: "pairing-token",
 	})
@@ -120,6 +169,30 @@ func TestPairAndMe(t *testing.T) {
 			}
 		})
 	}
+
+	req, err := http.NewRequest(http.MethodGet, server.URL+"/v1.1/devices/"+pair.DongleID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "JWT "+signedDeviceToken)
+	primeResp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer primeResp.Body.Close()
+	if primeResp.StatusCode != http.StatusOK {
+		t.Fatalf("prime status = %d, want %d", primeResp.StatusCode, http.StatusOK)
+	}
+	var prime struct {
+		IsPaired  bool `json:"is_paired"`
+		PrimeType int  `json:"prime_type"`
+	}
+	if err := json.NewDecoder(primeResp.Body).Decode(&prime); err != nil {
+		t.Fatal(err)
+	}
+	if !prime.IsPaired || prime.PrimeType <= 0 {
+		t.Fatalf("prime response = %+v", prime)
+	}
 }
 
 func TestPairRejectsWrongPairCode(t *testing.T) {
@@ -129,7 +202,7 @@ func TestPairRejectsWrongPairCode(t *testing.T) {
 	}
 	defer st.Close()
 
-	api := New(st, config.Config{
+	api := newTestAPI(t, st, config.Config{
 		JWTSecret:    "test-secret-at-least-thirty-two-bytes",
 		PairingToken: "pairing-token",
 	})
@@ -158,7 +231,7 @@ func TestPairAllowsSignedRegisterJWTWithoutPairingToken(t *testing.T) {
 	}
 	defer st.Close()
 
-	api := New(st, config.Config{JWTSecret: "test-secret-at-least-thirty-two-bytes"})
+	api := newTestAPI(t, st, config.Config{JWTSecret: "test-secret-at-least-thirty-two-bytes"})
 	mux := http.NewServeMux()
 	api.Mount(mux)
 	privateKey, publicKey := testKeyPair(t)
@@ -183,7 +256,7 @@ func TestPairRejectsJWTWithoutRegisterIntent(t *testing.T) {
 	}
 	defer st.Close()
 
-	api := New(st, config.Config{JWTSecret: "test-secret-at-least-thirty-two-bytes"})
+	api := newTestAPI(t, st, config.Config{JWTSecret: "test-secret-at-least-thirty-two-bytes"})
 	mux := http.NewServeMux()
 	api.Mount(mux)
 	privateKey, publicKey := testKeyPair(t)
@@ -208,7 +281,7 @@ func TestPairRejectsInvalidPublicKey(t *testing.T) {
 	}
 	defer st.Close()
 
-	api := New(st, config.Config{
+	api := newTestAPI(t, st, config.Config{
 		JWTSecret:    "test-secret-at-least-thirty-two-bytes",
 		PairingToken: "pairing-token",
 	})

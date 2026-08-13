@@ -52,12 +52,19 @@ func (h *Hub) OpenSSHTunnel(ctx context.Context, dongleID string) (int, func(), 
 
 	h.tunnelMu.Lock()
 	cfg := h.tunnelConfig
+	getBase := h.baseURL
 	h.tunnelMu.Unlock()
 	listener, port, err := listenTCPInRange(cfg.SSHTunnelPortMin, cfg.SSHTunnelPortMax)
 	if err != nil {
 		return 0, nil, err
 	}
-	remoteWSURI, ticket, err := proxyWebSocketURI(cfg.PublicBaseURL)
+	publicBase := cfg.PublicBaseURL
+	if getBase != nil {
+		if v := getBase(); v != "" {
+			publicBase = v
+		}
+	}
+	remoteWSURI, ticket, err := proxyWebSocketURI(publicBase)
 	if err != nil {
 		_ = listener.Close()
 		return 0, nil, err

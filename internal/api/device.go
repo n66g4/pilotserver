@@ -15,6 +15,24 @@ func (a *API) me(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"dongle_id": dongleID})
 }
 
+func (a *API) deviceStatus(w http.ResponseWriter, r *http.Request) {
+	dongleID, ok := a.authenticateDevice(w, r)
+	if !ok {
+		return
+	}
+	if dongleID != r.PathValue("dongleID") {
+		http.Error(w, "forbidden", http.StatusForbidden)
+		return
+	}
+	writeJSON(w, http.StatusOK, struct {
+		IsPaired  bool `json:"is_paired"`
+		PrimeType int  `json:"prime_type"`
+	}{
+		IsPaired:  true,
+		PrimeType: 1,
+	})
+}
+
 func (a *API) authenticateDevice(w http.ResponseWriter, r *http.Request) (string, bool) {
 	parts := strings.Fields(r.Header.Get("Authorization"))
 	if len(parts) != 2 ||

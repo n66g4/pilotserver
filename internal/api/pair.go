@@ -14,30 +14,32 @@ import (
 
 	"pilotserver/internal/auth"
 	"pilotserver/internal/config"
+	"pilotserver/internal/publicbase"
 	"pilotserver/internal/store"
 )
 
 const deviceJWTTTL = 24 * time.Hour
 
 type API struct {
-	store         *store.Store
-	jwtSecret     string
-	pairingToken  string
-	publicBaseURL string
+	store        *store.Store
+	jwtSecret    string
+	pairingToken string
+	baseURL      *publicbase.Resolver
 }
 
-func New(st *store.Store, cfg config.Config) *API {
+func New(st *store.Store, cfg config.Config, baseURL *publicbase.Resolver) *API {
 	return &API{
-		store:         st,
-		jwtSecret:     cfg.JWTSecret,
-		pairingToken:  cfg.PairingToken,
-		publicBaseURL: cfg.PublicBaseURL,
+		store:        st,
+		jwtSecret:    cfg.JWTSecret,
+		pairingToken: cfg.PairingToken,
+		baseURL:      baseURL,
 	}
 }
 
 func (a *API) Mount(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+PairPath, a.pair)
 	mux.HandleFunc("GET "+MePath, a.me)
+	mux.HandleFunc("GET /v1.1/devices/{dongleID}", a.deviceStatus)
 	mux.HandleFunc("POST /v1.1/devices/{dongleID}/upload_url/", a.uploadURL)
 	mux.HandleFunc("GET /v1.4/{dongleID}/upload_url/", a.uploadURL)
 	mux.HandleFunc("GET /v1/devices/{dongleID}/routes", a.listRoutes)
@@ -52,6 +54,15 @@ func (a *API) pair(w http.ResponseWriter, r *http.Request) {
 		PairCode      string `json:"pair_code"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		// openpilot's registration.py sends the fields as query/form
+		// parameters with an empty body, not as JSON.
+		request.IMEI = r.FormValue("imei")
+		request.Serial = r.FormValue("serial")
+		request.PublicKey = r.FormValue("public_key")
+		request.RegisterToken = r.FormValue("register_token")
+		request.PairCode = r.FormValue("pair_code")
+	}
+	if request.PublicKey == "" || request.RegisterToken == "" {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
