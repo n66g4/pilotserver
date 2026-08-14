@@ -118,6 +118,7 @@ func handleSSHPty(w http.ResponseWriter, r *http.Request, hub *athena.Hub, baseU
 				}
 			}
 			if readErr != nil {
+				writeSSHPtyError(r.Context(), conn, "tunnel_failed")
 				conn.CloseNow()
 				return
 			}
@@ -132,6 +133,7 @@ func handleSSHPty(w http.ResponseWriter, r *http.Request, hub *athena.Hub, baseU
 		switch messageType {
 		case websocket.MessageBinary:
 			if _, err := session.Stdin().Write(payload); err != nil {
+				writeSSHPtyError(r.Context(), conn, "tunnel_failed")
 				conn.CloseNow()
 			}
 		case websocket.MessageText:

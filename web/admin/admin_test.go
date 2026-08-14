@@ -22,6 +22,9 @@ func TestServeHTTPEmbeddedAssets(t *testing.T) {
 		{path: "/admin/i18n.js", contentType: "text/javascript; charset=utf-8", body: "window.PilotI18n"},
 		{path: "/admin/vendor/hls.min.js", contentType: "text/javascript; charset=utf-8", body: "Hls"},
 		{path: "/admin/vendor/hls.js.LICENSE.txt", contentType: "text/plain; charset=utf-8", body: "Apache License"},
+		{path: "/admin/vendor/xterm.min.js", contentType: "text/javascript; charset=utf-8", body: "Terminal"},
+		{path: "/admin/vendor/xterm.css", contentType: "text/css; charset=utf-8", body: ".xterm"},
+		{path: "/admin/vendor/xterm.LICENSE.txt", contentType: "text/plain; charset=utf-8", body: "Permission is hereby granted"},
 	}
 
 	for _, tt := range tests {
@@ -85,7 +88,13 @@ func TestServeHTTPEmbeddedCerealLicenses(t *testing.T) {
 }
 
 func TestServeHTTPCachePolicy(t *testing.T) {
-	for _, path := range []string{"/admin/vendor/hls.min.js", "/admin/vendor/hls.js.LICENSE.txt"} {
+	for _, path := range []string{
+		"/admin/vendor/hls.min.js",
+		"/admin/vendor/hls.js.LICENSE.txt",
+		"/admin/vendor/xterm.min.js",
+		"/admin/vendor/xterm.css",
+		"/admin/vendor/xterm.LICENSE.txt",
+	} {
 		t.Run(path, func(t *testing.T) {
 			rec := httptest.NewRecorder()
 			ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
@@ -604,6 +613,86 @@ func TestAdminHTMLContainsReplayHooks(t *testing.T) {
 		if !strings.Contains(html, want) {
 			t.Errorf("admin HTML does not contain %q", want)
 		}
+	}
+}
+
+func TestAdminHTMLContainsSSHKeyAndTerminalHooks(t *testing.T) {
+	html := string(indexHTML)
+	for _, want := range []string{
+		`id="ssh-public-key"`,
+		`id="copy-ssh-key"`,
+		`id="rotate-ssh-key"`,
+		`devices.openTerminal`,
+		`id="view-ssh"`,
+		`src="/admin/vendor/xterm.min.js"`,
+		`/admin/api/devices/${encodeURIComponent(device.dongle_id)}/ssh/pty?access_token=`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("admin HTML does not contain SSH hook %q", want)
+		}
+	}
+	for _, forbidden := range []string{"PRIVATE KEY", "id_ed25519"} {
+		if strings.Contains(html, forbidden) {
+			t.Errorf("admin HTML exposes private key material marker %q", forbidden)
+		}
+	}
+}
+
+func TestAdminHTMLLanguageSwitchPreservesTerminalSession(t *testing.T) {
+	html := adminInlineHTML(t)
+	applyLanguage := adminFunction(t, html, "function applyLanguage(", "\n    async function api")
+	if strings.Contains(applyLanguage, "closeSSH") {
+		t.Error("applyLanguage must not close the SSH terminal")
+	}
+	for _, want := range []string{
+		`previous === "ssh" && view !== "ssh"`,
+		`closeSSH();`,
+		`JSON.stringify({cols: sshTerminal.cols, rows: sshTerminal.rows})`,
+		`sshTerminal.onData`,
+		`sshTerminal.onResize`,
+	} {
+		if !strings.Contains(html, want) {
+			t.Errorf("admin HTML does not contain terminal lifecycle hook %q", want)
+		}
+	}
+}
+
+func TestAdminHTMLReportsRemoteSSHCloseWithoutFlashingOnLocalClose(t *testing.T) {
+	html := adminInlineHTML(t)
+	closeSSH := adminFunction(t, html, "function closeSSH()", "\n    function openSSHDevice")
+	openSSH := adminFunction(t, html, "function openSSHDevice", "\n    function renderDevice")
+	if strings.Index(closeSSH, `sshSocket = null;`) > strings.Index(closeSSH, `socket.close();`) {
+		t.Error("closeSSH must clear sshSocket before closing the WebSocket")
+	}
+	for _, want := range []string{
+		`closeSSH();`,
+		`let errorShown = false;`,
+		`errorShown = true;`,
+		`socket.addEventListener("close", () => {`,
+		`if (socket !== sshSocket) return;`,
+		`if (!errorShown) setLocalizedText(status, "ssh.tunnelFailed");`,
+		`sshSocket = null;`,
+	} {
+		if !strings.Contains(openSSH, want) {
+			t.Errorf("openSSHDevice does not contain remote-close hook %q", want)
+		}
+	}
+}
+
+func TestAdminHTMLDisablesSSHKeyRotateUntilRequestFinishes(t *testing.T) {
+	html := adminInlineHTML(t)
+	handler := adminFunction(t, html,
+		`document.querySelector("#rotate-ssh-key").addEventListener`,
+		`document.querySelector("#allow-lan").addEventListener`)
+	disabled := strings.Index(handler, `button.disabled = true;`)
+	request := strings.Index(handler, `api("/admin/api/ssh-key/rotate"`)
+	finally := strings.Index(handler, `} finally {`)
+	enabled := strings.Index(handler, `button.disabled = false;`)
+	if disabled < 0 || request < 0 || disabled > request {
+		t.Error("rotate handler must disable the button before starting the request")
+	}
+	if finally < 0 || enabled < finally {
+		t.Error("rotate handler must re-enable the button in finally")
 	}
 }
 

@@ -36,6 +36,7 @@ test("dictionaries have identical keys and interpolate named values", () => {
   const zh = PilotI18n.create({storage: memoryStorage(), languages: ["zh"]});
   const en = PilotI18n.create({storage: memoryStorage(), languages: ["en"]});
   assert.deepStrictEqual(Object.keys(zh.dictionary()).sort(), Object.keys(en.dictionary()).sort());
+  assert.strictEqual(zh.t("devices.openTerminal"), "开终端");
   assert.strictEqual(zh.t("topbar.serviceOk"), "服务正常");
   assert.strictEqual(zh.t("topbar.serviceError"), "服务异常");
   assert.strictEqual(en.t("topbar.serviceOk"), "Service OK");
@@ -56,8 +57,14 @@ test("dictionaries cover the complete localized admin workflow", () => {
     "settings.securityCode", "settings.mapNote", "settings.mapRefreshNote",
     "settings.save", "settings.configured", "settings.notConfigured",
     "settings.readFailed", "settings.saved", "settings.savedListenChanged",
+    "settings.sshKeyTitle", "settings.sshKeyHelp", "settings.sshPublicKey",
+    "settings.copySSHKey", "settings.rotateSSHKey", "settings.rotateSSHKeyConfirm",
+    "settings.sshKeyCopied",
     "devices.title", "devices.refresh", "devices.empty", "devices.viewRoutes",
-    "devices.openSSH", "devices.dongleId", "devices.status", "devices.actions",
+    "devices.openSSH", "devices.openTerminal", "devices.dongleId", "devices.status",
+    "devices.actions", "ssh.title", "ssh.copyCommand", "ssh.close",
+    "ssh.connecting", "ssh.offline", "ssh.publicBaseUnconfigured",
+    "ssh.authFailed", "ssh.tunnelFailed",
     "status.online", "status.offline",
     "routes.title", "routes.empty", "routes.loadingFiles", "routes.downloadFailed",
     "routes.loadFilesFailed", "routes.playOnline", "routes.viewTelemetry",

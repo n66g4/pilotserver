@@ -107,7 +107,7 @@ func TestSSHPtyConnectsUsingStoredKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	sshAddr := startPTYSSHServer(t, signer.PublicKey())
+	sshAddr := startPTYSSHServer(t, signer.PublicKey(), false)
 	_, portText, err := net.SplitHostPort(sshAddr)
 	if err != nil {
 		t.Fatal(err)
@@ -116,8 +116,9 @@ func TestSSHPtyConnectsUsingStoredKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	tunnelCanceled := make(chan struct{})
 	setTunnelOpener(t, func(context.Context, *athena.Hub, string) (string, int, func(), error) {
-		return sshAddr, port, func() {}, nil
+		return sshAddr, port, func() { close(tunnelCanceled) }, nil
 	})
 	server, token := newPTYHTTPServer(t, config.Config{
 		JWTSecret:     ptyTestSecret,
@@ -152,10 +153,70 @@ func TestSSHPtyConnectsUsingStoredKey(t *testing.T) {
 	if string(payload) != "ready\n" {
 		t.Fatalf("PTY greeting = %q, want %q", payload, "ready\n")
 	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	if err := conn.Write(ctx, websocket.MessageBinary, []byte("echo me")); err != nil {
+		t.Fatal(err)
+	}
+	messageType, payload = readPTYMessage(t, conn)
+	if messageType != websocket.MessageBinary || string(payload) != "echo me" {
+		t.Fatalf("PTY echo = (%v, %q), want binary %q", messageType, payload, "echo me")
+	}
+	if err := conn.Write(ctx, websocket.MessageText, []byte(`{"cols":40,"rows":12}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := conn.Close(websocket.StatusNormalClosure, "test complete"); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-tunnelCanceled:
+	case <-ctx.Done():
+		t.Fatal("tunnel cancel was not called after WebSocket close")
+	}
+}
+
+func TestSSHPtyReportsRemoteShellExit(t *testing.T) {
+	dataDir := t.TempDir()
+	keyStore, err := sshkey.Open(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := keyStore.Signer()
+	if err != nil {
+		t.Fatal(err)
+	}
+	sshAddr := startPTYSSHServer(t, signer.PublicKey(), true)
+	_, portText, err := net.SplitHostPort(sshAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	port, err := strconv.Atoi(portText)
+	if err != nil {
+		t.Fatal(err)
+	}
+	setTunnelOpener(t, func(context.Context, *athena.Hub, string) (string, int, func(), error) {
+		return sshAddr, port, func() {}, nil
+	})
+	server, token := newPTYHTTPServer(t, config.Config{
+		JWTSecret:     ptyTestSecret,
+		DataDir:       dataDir,
+		PublicBaseURL: "https://admin.example.com",
+	})
+
+	conn := dialPTY(t, server.URL, token)
+	defer conn.CloseNow()
+	writePTYSize(t, conn)
+	readPTYMessage(t, conn)
+	messageType, payload := readPTYMessage(t, conn)
+	if messageType != websocket.MessageBinary || string(payload) != "ready\n" {
+		t.Fatalf("PTY greeting = (%v, %q), want binary %q", messageType, payload, "ready\n")
+	}
+	assertPTYError(t, conn, "tunnel_failed")
 }
 
 func TestSSHPtyReportsRejectedStoredKey(t *testing.T) {
-	sshAddr := startPTYSSHServer(t, newPTYSigner(t).PublicKey())
+	sshAddr := startPTYSSHServer(t, newPTYSigner(t).PublicKey(), false)
 	_, portText, err := net.SplitHostPort(sshAddr)
 	if err != nil {
 		t.Fatal(err)
@@ -291,7 +352,7 @@ func newPTYSigner(t *testing.T) ssh.Signer {
 	return signer
 }
 
-func startPTYSSHServer(t *testing.T, allowed ssh.PublicKey) string {
+func startPTYSSHServer(t *testing.T, allowed ssh.PublicKey, closeAfterGreeting bool) string {
 	t.Helper()
 	config := &ssh.ServerConfig{
 		PublicKeyCallback: func(_ ssh.ConnMetadata, key ssh.PublicKey) (*ssh.Permissions, error) {
@@ -313,13 +374,13 @@ func startPTYSSHServer(t *testing.T, allowed ssh.PublicKey) string {
 			if err != nil {
 				return
 			}
-			go servePTYSSHConnection(conn, config)
+			go servePTYSSHConnection(conn, config, closeAfterGreeting)
 		}
 	}()
 	return listener.Addr().String()
 }
 
-func servePTYSSHConnection(conn net.Conn, config *ssh.ServerConfig) {
+func servePTYSSHConnection(conn net.Conn, config *ssh.ServerConfig, closeAfterGreeting bool) {
 	defer conn.Close()
 	_, channels, requests, err := ssh.NewServerConn(conn, config)
 	if err != nil {
@@ -340,6 +401,9 @@ func servePTYSSHConnection(conn net.Conn, config *ssh.ServerConfig) {
 				case "shell":
 					_ = request.Reply(true, nil)
 					_, _ = channel.Write([]byte("ready\n"))
+					if closeAfterGreeting {
+						return
+					}
 					_, _ = io.Copy(channel, channel)
 				default:
 					_ = request.Reply(false, nil)

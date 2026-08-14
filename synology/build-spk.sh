@@ -5,7 +5,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SPK_SRC="${ROOT}/synology/spk"
 DIST="${ROOT}/dist"
-VERSION="${PILOTSERVER_SPK_VERSION:-1.0.19-1}"
+VERSION="${PILOTSERVER_SPK_VERSION:-1.0.20-1}"
 PKG_NAME="pilotserver"
 ARCH="x64"
 # Avoid macOS AppleDouble (._*) files breaking DSM wizard parsing.
