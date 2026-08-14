@@ -1,13 +1,9 @@
 package sshkey
 
 import (
-	"crypto/ed25519"
-	"crypto/rand"
-	"encoding/pem"
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 
 	"golang.org/x/crypto/ssh"
@@ -16,6 +12,13 @@ import (
 type Store struct {
 	dir string
 }
+
+type Status struct {
+	Configured  bool
+	Fingerprint string
+}
+
+var ErrInvalidKey = errors.New("invalid SSH private key")
 
 var fileMu sync.Mutex
 
@@ -33,92 +36,85 @@ func Open(dataDir string) (*Store, error) {
 	return &Store{dir: dir}, nil
 }
 
-func (s *Store) PublicKey() (string, error) {
+func (s *Store) Status() (Status, error) {
 	fileMu.Lock()
 	defer fileMu.Unlock()
-
 	if err := ensurePermissions(s.dir); err != nil {
-		return "", err
+		return Status{}, err
 	}
 	signer, err := s.signer()
 	if errors.Is(err, os.ErrNotExist) {
-		return s.rotate()
+		return Status{}, nil
 	}
 	if err != nil {
-		return "", err
+		return Status{}, err
 	}
-	return s.writePublicKey(signer.PublicKey())
+	return Status{Configured: true, Fingerprint: ssh.FingerprintSHA256(signer.PublicKey())}, nil
 }
 
-func (s *Store) Rotate() (string, error) {
+func (s *Store) Import(privateKey []byte) (Status, error) {
 	fileMu.Lock()
 	defer fileMu.Unlock()
-	return s.rotate()
+	if err := ensurePermissions(s.dir); err != nil {
+		return Status{}, err
+	}
+	signer, err := ssh.ParsePrivateKey(privateKey)
+	if err != nil {
+		return Status{}, ErrInvalidKey
+	}
+	if err := writeFileAtomic(s.privatePath(), privateKey, 0o600); err != nil {
+		return Status{}, err
+	}
+	_ = os.Remove(s.publicPath())
+	return Status{Configured: true, Fingerprint: ssh.FingerprintSHA256(signer.PublicKey())}, nil
+}
+
+func (s *Store) Clear() error {
+	fileMu.Lock()
+	defer fileMu.Unlock()
+	if err := ensurePermissions(s.dir); err != nil {
+		return err
+	}
+	for _, path := range []string{s.privatePath(), s.publicPath()} {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) Signer() (ssh.Signer, error) {
 	fileMu.Lock()
 	defer fileMu.Unlock()
-
 	if err := ensurePermissions(s.dir); err != nil {
 		return nil, err
 	}
-	signer, err := s.signer()
-	if errors.Is(err, os.ErrNotExist) {
-		if _, err := s.rotate(); err != nil {
-			return nil, err
-		}
-		return s.signer()
-	}
-	return signer, err
+	return s.signer()
 }
 
 func (s *Store) signer() (ssh.Signer, error) {
-	privateKey, err := os.ReadFile(filepath.Join(s.dir, "id_ed25519"))
+	privateKey, err := os.ReadFile(s.privatePath())
 	if err != nil {
 		return nil, err
 	}
 	return ssh.ParsePrivateKey(privateKey)
 }
 
-func (s *Store) rotate() (string, error) {
-	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
-	if err != nil {
-		return "", err
-	}
-	block, err := ssh.MarshalPrivateKey(privateKey, "")
-	if err != nil {
-		return "", err
-	}
-	if err := writeFileAtomic(filepath.Join(s.dir, "id_ed25519"), pem.EncodeToMemory(block), 0o600); err != nil {
-		return "", err
-	}
-	signer, err := ssh.NewSignerFromKey(privateKey)
-	if err != nil {
-		return "", err
-	}
-	return s.writePublicKey(signer.PublicKey())
+func (s *Store) privatePath() string {
+	return filepath.Join(s.dir, "id_ed25519")
 }
 
-func (s *Store) writePublicKey(key ssh.PublicKey) (string, error) {
-	authorizedKey := ssh.MarshalAuthorizedKey(key)
-	if err := writeFileAtomic(filepath.Join(s.dir, "id_ed25519.pub"), authorizedKey, 0o644); err != nil {
-		return "", err
-	}
-	return strings.TrimSpace(string(authorizedKey)), nil
+func (s *Store) publicPath() string {
+	return filepath.Join(s.dir, "id_ed25519.pub")
 }
 
 func ensurePermissions(dir string) error {
 	if err := os.Chmod(dir, 0o700); err != nil {
 		return err
 	}
-	for path, mode := range map[string]os.FileMode{
-		filepath.Join(dir, "id_ed25519"):     0o600,
-		filepath.Join(dir, "id_ed25519.pub"): 0o644,
-	} {
-		if err := os.Chmod(path, mode); err != nil && !errors.Is(err, os.ErrNotExist) {
-			return err
-		}
+	path := filepath.Join(dir, "id_ed25519")
+	if err := os.Chmod(path, 0o600); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
 	return nil
 }

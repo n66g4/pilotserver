@@ -1,13 +1,21 @@
 package adminapi_test
 
 import (
+	"bytes"
+	"crypto/ed25519"
+	"crypto/rand"
 	"encoding/json"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
+
+	"golang.org/x/crypto/ssh"
 
 	"pilotserver/internal/athena"
 	"pilotserver/internal/auth"
@@ -15,7 +23,7 @@ import (
 	"pilotserver/internal/store"
 )
 
-func TestAdminSSHKeyRequiresAuthenticationAndRotates(t *testing.T) {
+func TestAdminSSHKeyImportClearAndNeverExposesPrivateKey(t *testing.T) {
 	dataDir := t.TempDir()
 	st, err := store.Open(dataDir)
 	if err != nil {
@@ -46,51 +54,148 @@ func TestAdminSSHKeyRequiresAuthenticationAndRotates(t *testing.T) {
 	if queryAuthorized.Code != http.StatusOK {
 		t.Fatalf("query token status = %d, want %d", queryAuthorized.Code, http.StatusOK)
 	}
-	bogusQuery := httptest.NewRecorder()
-	mux.ServeHTTP(bogusQuery, httptest.NewRequest(
-		http.MethodGet,
-		"/admin/api/ssh-key?access_token=bogus",
-		nil,
-	))
-	if bogusQuery.Code != http.StatusUnauthorized {
-		t.Fatalf("bogus query token status = %d, want %d", bogusQuery.Code, http.StatusUnauthorized)
-	}
-	request := func(method, target string) (int, string) {
+
+	request := func(method, target string, body []byte) (int, string) {
 		t.Helper()
 		rec := httptest.NewRecorder()
-		req := httptest.NewRequest(method, target, nil)
+		req := httptest.NewRequest(method, target, bytes.NewReader(body))
 		req.Header.Set("Authorization", "Bearer "+token)
+		if body != nil {
+			req.Header.Set("Content-Type", "application/json")
+		}
 		mux.ServeHTTP(rec, req)
 		return rec.Code, rec.Body.String()
 	}
-	publicKey := func(method, target string) string {
+	decode := func(body string) struct {
+		Configured  bool   `json:"configured"`
+		Fingerprint string `json:"fingerprint"`
+		PublicKey   string `json:"public_key"`
+	} {
 		t.Helper()
-		status, body := request(method, target)
-		if status != http.StatusOK {
-			t.Fatalf("%s %s status = %d, body = %s", method, target, status, body)
-		}
 		if strings.Contains(body, "PRIVATE KEY") {
 			t.Fatal("response exposed private key")
 		}
 		var response struct {
-			PublicKey string `json:"public_key"`
+			Configured  bool   `json:"configured"`
+			Fingerprint string `json:"fingerprint"`
+			PublicKey   string `json:"public_key"`
 		}
 		if err := json.Unmarshal([]byte(body), &response); err != nil {
 			t.Fatal(err)
 		}
-		if !strings.HasPrefix(response.PublicKey, "ssh-ed25519 ") {
-			t.Fatalf("public_key = %q", response.PublicKey)
+		if response.PublicKey != "" {
+			t.Fatalf("public_key leaked: %q", response.PublicKey)
 		}
-		return response.PublicKey
+		return response
 	}
 
-	first := publicKey(http.MethodGet, "/admin/api/ssh-key")
-	rotated := publicKey(http.MethodPost, "/admin/api/ssh-key/rotate")
-	if rotated == first {
-		t.Fatal("rotate returned the same public key")
+	status, body := request(http.MethodGet, "/admin/api/ssh-key", nil)
+	if status != http.StatusOK {
+		t.Fatalf("GET empty status = %d, body = %s", status, body)
 	}
-	afterRotate := publicKey(http.MethodGet, "/admin/api/ssh-key")
-	if afterRotate != rotated {
-		t.Fatalf("GET after rotate = %q, want %q", afterRotate, rotated)
+	got := decode(body)
+	if got.Configured || got.Fingerprint != "" {
+		t.Fatalf("empty GET = %+v", got)
 	}
+
+	pemBytes, fingerprint := marshalAdminTestKey(t)
+	putBody, err := json.Marshal(map[string]string{"private_key": string(pemBytes)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, body = request(http.MethodPut, "/admin/api/ssh-key", putBody)
+	if status != http.StatusOK {
+		t.Fatalf("PUT status = %d, body = %s", status, body)
+	}
+	got = decode(body)
+	if !got.Configured || got.Fingerprint != fingerprint {
+		t.Fatalf("PUT response = %+v, want %q", got, fingerprint)
+	}
+
+	status, body = request(http.MethodGet, "/admin/api/ssh-key", nil)
+	if status != http.StatusOK {
+		t.Fatal(body)
+	}
+	got = decode(body)
+	if got.Fingerprint != fingerprint {
+		t.Fatalf("GET after PUT = %+v", got)
+	}
+
+	status, body = request(http.MethodPut, "/admin/api/ssh-key", []byte(`{"private_key":"not-a-key"}`))
+	if status != http.StatusBadRequest {
+		t.Fatalf("invalid PUT status = %d, body = %s", status, body)
+	}
+	status, body = request(http.MethodGet, "/admin/api/ssh-key", nil)
+	got = decode(body)
+	if got.Fingerprint != fingerprint {
+		t.Fatal("invalid PUT overwrote the key")
+	}
+
+	status, body = request(http.MethodDelete, "/admin/api/ssh-key", nil)
+	if status != http.StatusOK {
+		t.Fatalf("DELETE status = %d, body = %s", status, body)
+	}
+	got = decode(body)
+	if got.Configured {
+		t.Fatal("still configured after DELETE")
+	}
+	status, body = request(http.MethodDelete, "/admin/api/ssh-key", nil)
+	if status != http.StatusOK {
+		t.Fatalf("second DELETE status = %d, body = %s", status, body)
+	}
+}
+
+func TestAdminSSHKeyGetReturns500ForCorruptStoredKey(t *testing.T) {
+	dataDir := t.TempDir()
+	st, err := store.Open(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+
+	keyDir := filepath.Join(dataDir, "ssh")
+	if err := os.MkdirAll(keyDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(keyDir, "id_ed25519"), []byte("garbage private key"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	mux := http.NewServeMux()
+	mountAdmin(t, mux, st, athena.NewHub(), config.Config{
+		JWTSecret: adminTestSecret,
+		DataDir:   dataDir,
+	}, "")
+	token, err := auth.IssueAdminJWT(adminTestSecret, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/admin/api/ssh-key", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d; body = %s", rec.Code, http.StatusInternalServerError, rec.Body.String())
+	}
+	if strings.Contains(rec.Body.String(), "PRIVATE KEY") {
+		t.Fatal("response exposed private key material")
+	}
+}
+
+func marshalAdminTestKey(t *testing.T) ([]byte, string) {
+	t.Helper()
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, err := ssh.MarshalPrivateKey(privateKey, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	signer, err := ssh.NewSignerFromKey(privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pem.EncodeToMemory(block), ssh.FingerprintSHA256(signer.PublicKey())
 }

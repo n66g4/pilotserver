@@ -10,16 +10,16 @@ cd /path/to/pilotserver
 # 产物：dist/pilotserver-*-x64.spk
 ```
 
-默认构建版本为 `1.0.20-1`；如需自定义可使用 `PILOTSERVER_SPK_VERSION=版本 ./synology/build-spk.sh`。
+默认构建版本为 `1.0.21-1`；如需自定义可使用 `PILOTSERVER_SPK_VERSION=版本 ./synology/build-spk.sh`。
 
 ## DSM 安装与升级
 
 1. 套件中心 → 设置 → 勾选 **信任未知发布者**（黑群晖必备）
-2. 手动安装 → 选中 `dist/pilotserver-1.0.20-1-x64.spk`（不要用旧的 `*-x86_64.spk`）
+2. 手动安装 → 选中 `dist/pilotserver-1.0.21-1-x64.spk`（不要用旧的 `*-x86_64.spk`）
 3. 向导填写 **管理密码**；可选填 **公网 HTTPS 访问地址**（不是配 DDNS）与配对二次口令
 4. **DDNS** 仍用 DSM「外部访问 → DDNS」
 
-从旧版本升级时也在套件中心选择“手动安装”，上传 `pilotserver-1.0.20-1-x64.spk` 并按提示升级；升级前仍建议备份 `/var/packages/pilotserver/var/data/`。`1.0.20-1` 提供统一的概览 / 设备 / 行程 / 设置控制台，支持简体中文与英文切换并持久保存语言选择。此次升级不涉及 API 或数据库迁移，原有数据与设备端配置可继续使用。安装或升级完成后确认套件状态为“运行中”，再打开 `/admin/`。
+从旧版本升级时也在套件中心选择“手动安装”，上传 `pilotserver-1.0.21-1-x64.spk` 并按提示升级；升级前仍建议备份 `/var/packages/pilotserver/var/data/`。`1.0.21-1` 提供统一的概览 / 设备 / 行程 / 设置控制台，支持简体中文与英文切换并持久保存语言选择，并支持在设置中导入已添加到 GitHub 的 SSH 私钥。此次升级不涉及 API 或数据库迁移，原有数据与设备端配置可继续使用。安装或升级完成后确认套件状态为“运行中”，再打开 `/admin/`。升级后若显示的指纹不是你的 GitHub 私钥指纹，请先清除，再重新粘贴保存。
 
 若安装失败，SSH 查看：
 
@@ -99,9 +99,9 @@ qlog 文件变化后缓存会自动失效并重建。
 
 ## SSH 隧道端口
 
-在管理后台「设置」中生成并复制 NAS 公钥，将公钥加入车上 `comma` 用户的 `authorized_keys` 并启用 SSH；私钥始终只保留在 NAS。随后在管理后台设备页点击「开终端」即可使用浏览器终端。
+车上填写 GitHub 用户名并打开 SSH。在管理后台「设置」粘贴已添加到 GitHub 的 OpenSSH 私钥并保存（私钥只留在 NAS）。设备在线后点「开终端」。原有可选的复制 SSH 命令方式仍需放行 `41000–41099` 端口，本机终端使用同一把私钥。
 
-原有可选的复制 SSH 命令方式仍使用本机 `41000–41099`。DSM 反向代理只管 HTTP(S)，使用该方式时请在防火墙放行此范围，必要时用额外 TCP 转发。详见仓库 `deploy/nginx.example.conf`（若你在 DSM 外另跑 Nginx）。
+DSM 反向代理只管 HTTP(S)，使用复制 SSH 命令方式时必要时用额外 TCP 转发。详见仓库 `deploy/nginx.example.conf`（若你在 DSM 外另跑 Nginx）。
 
 ## 数据与卸载
 

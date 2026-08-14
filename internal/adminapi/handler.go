@@ -40,8 +40,11 @@ func Mount(mux *http.ServeMux, st *store.Store, hub *athena.Hub, cfg config.Conf
 	adminMux.HandleFunc("GET /admin/api/ssh-key", func(w http.ResponseWriter, r *http.Request) {
 		handleGetSSHKey(w, cfg.DataDir)
 	})
-	adminMux.HandleFunc("POST /admin/api/ssh-key/rotate", func(w http.ResponseWriter, r *http.Request) {
-		handleRotateSSHKey(w, cfg.DataDir)
+	adminMux.HandleFunc("PUT /admin/api/ssh-key", func(w http.ResponseWriter, r *http.Request) {
+		handlePutSSHKey(w, r, cfg.DataDir)
+	})
+	adminMux.HandleFunc("DELETE /admin/api/ssh-key", func(w http.ResponseWriter, r *http.Request) {
+		handleDeleteSSHKey(w, cfg.DataDir)
 	})
 	adminMux.HandleFunc("GET /admin/api/devices/{dongleID}/routes", func(w http.ResponseWriter, r *http.Request) {
 		handleRoutes(w, r, st)
@@ -67,6 +70,7 @@ func Mount(mux *http.ServeMux, st *store.Store, hub *athena.Hub, cfg config.Conf
 	mux.Handle("GET /admin/api/", protected)
 	mux.Handle("POST /admin/api/", protected)
 	mux.Handle("PUT /admin/api/", protected)
+	mux.Handle("DELETE /admin/api/", protected)
 }
 
 func handleLogin(w http.ResponseWriter, r *http.Request, jwtSecret, passwordHash string) {

@@ -72,7 +72,7 @@
     #replay-video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #050708; border: 1px solid #26383e; }
     .ssh-key-panel { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--line); }
     .ssh-key-panel label { display: grid; gap: 6px; }
-    #ssh-public-key { width: 100%; min-height: 92px; resize: vertical; }
+    #ssh-private-key { width: 100%; min-height: 92px; resize: vertical; }
     #view-ssh { padding: clamp(16px, 3vw, 32px); color: #d9e4e8; background: #101719; border: 1px solid #33474d; box-shadow: 0 18px 50px #0b111366; }
     .ssh-header, .ssh-command { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
     .ssh-header { justify-content: space-between; margin-bottom: 12px; }
@@ -214,10 +214,11 @@
               <span id="settings-status"></span>
               <section class="ssh-key-panel">
                 <h2 data-i18n="settings.sshKeyTitle">SSH key</h2>
-                <p data-i18n="settings.sshKeyHelp">Add this public key to the comma user's authorized keys and enable SSH. The private key stays on the NAS.</p>
-                <label><span data-i18n="settings.sshPublicKey">Public key</span><textarea id="ssh-public-key" readonly></textarea></label>
-                <button id="copy-ssh-key" type="button" data-i18n="settings.copySSHKey">Copy public key</button>
-                <button id="rotate-ssh-key" type="button" data-i18n="settings.rotateSSHKey">Regenerate</button>
+                <p data-i18n="settings.sshKeyHelp">The car only needs a GitHub username with SSH enabled. Paste the OpenSSH private key whose public key is on GitHub. The private key stays on the NAS and is never shown again.</p>
+                <p id="ssh-key-state" aria-live="polite"></p>
+                <label><span data-i18n="settings.sshPrivateKey">Private key</span><textarea id="ssh-private-key" spellcheck="false" autocomplete="off"></textarea></label>
+                <button id="save-ssh-key" type="button" data-i18n="settings.saveSSHKey">Save key</button>
+                <button id="clear-ssh-key" type="button" data-i18n="settings.clearSSHKey">Clear key</button>
                 <span id="ssh-key-status" aria-live="polite"></span>
               </section>
             </div>
@@ -348,6 +349,7 @@
     let failedReplaySegment = null;
     let sshSocket = null;
     let sshTerminal = null;
+    let sshKeyInfo = {configured: false, fingerprint: ""};
     const telemetry = window.PilotTelemetry.create({
       video: replayVideo,
       api,
@@ -422,7 +424,9 @@
       document.querySelector("#map-provider").value = "none";
       document.querySelector("#map-web-key").value = "";
       document.querySelector("#map-security-code").value = "";
-      document.querySelector("#ssh-public-key").value = "";
+      document.querySelector("#ssh-private-key").value = "";
+      sshKeyInfo = {configured: false, fingerprint: ""};
+      renderSSHKeyState();
       document.querySelector("#map-security-code-field").hidden = true;
       document.querySelector("#map-refresh-note").hidden = true;
       clearLocalizedText(document.querySelector("#settings-status"));
@@ -483,6 +487,17 @@
       element.textContent = "";
     }
 
+    function renderSSHKeyState() {
+      const state = document.querySelector("#ssh-key-state");
+      if (sshKeyInfo.corrupt) {
+        setLocalizedText(state, "settings.sshKeyCorrupt");
+      } else if (sshKeyInfo.configured) {
+        setLocalizedText(state, "settings.sshKeyConfigured", {fingerprint: sshKeyInfo.fingerprint});
+      } else {
+        setLocalizedText(state, "settings.sshKeyMissing");
+      }
+    }
+
     function localizedError(error, fallbackKey) {
       return window.PilotI18n.localizeError(i18n.t, error, fallbackKey);
     }
@@ -529,6 +544,7 @@
       window.PilotTelemetry.active?.setTranslate(i18n.t);
       renderShell();
       renderCurrentView();
+      renderSSHKeyState();
       if (preserveFocus && focusedElement?.isConnected) focusedElement.focus();
       console.assert(replayVideo.currentTime === replaySnapshot.time, "language switch changed replay time");
       console.assert(replayMode.value === replaySnapshot.mode, "language switch changed replay mode");
@@ -594,25 +610,44 @@
     }
 
     async function loadSettings() {
-      try {
-        const [settings, sshKey] = await Promise.all([
-          api("/admin/api/settings"),
-          api("/admin/api/ssh-key")
-        ]);
+      const [settingsResult, sshKeyResult] = await Promise.allSettled([
+        api("/admin/api/settings"),
+        api("/admin/api/ssh-key")
+      ]);
+      if (settingsResult.status === "fulfilled") {
+        const settings = settingsResult.value;
         currentSettings = settings;
         document.querySelector("#public-base-url").value = settings.public_base_url || "";
         document.querySelector("#listen-addr").value = settings.listen_addr || "127.0.0.1:18780";
         document.querySelector("#allow-lan").checked = !!settings.allow_lan;
-        document.querySelector("#ssh-public-key").value = sshKey.public_key || "";
         applyMapSettings(settings);
         setLocalizedText(
           document.querySelector("#settings-status"),
           settings.configured ? "settings.configured" : "settings.notConfigured"
         );
         renderOverview();
-      } catch (error) {
+      } else {
+        if (settingsResult.reason === staleSession) return;
+        setLocalizedError(document.querySelector("#settings-status"), settingsResult.reason, "settings.readFailed");
+      }
+
+      if (sshKeyResult.status === "fulfilled") {
+        const sshKey = sshKeyResult.value;
+        sshKeyInfo = {
+          configured: !!sshKey.configured,
+          fingerprint: sshKey.fingerprint || ""
+        };
+        renderSSHKeyState();
+        clearLocalizedText(document.querySelector("#ssh-key-status"));
+      } else {
+        const error = sshKeyResult.reason;
         if (error === staleSession) return;
-        setLocalizedError(document.querySelector("#settings-status"), error, "settings.readFailed");
+        if (error && error.code === "http_500") {
+          sshKeyInfo = {configured: false, fingerprint: "", corrupt: true};
+          renderSSHKeyState();
+          return;
+        }
+        setLocalizedError(document.querySelector("#ssh-key-status"), error, "settings.readFailed");
       }
     }
 
@@ -780,6 +815,7 @@
           const errorKey = {
             offline: "ssh.offline",
             public_base_unconfigured: "ssh.publicBaseUnconfigured",
+            key_unconfigured: "ssh.keyUnconfigured",
             auth_failed: "ssh.authFailed",
             tunnel_failed: "ssh.tunnelFailed"
           }[message.error] || "ssh.tunnelFailed";
@@ -1341,30 +1377,44 @@
       }
     });
 
-    document.querySelector("#copy-ssh-key").addEventListener("click", async () => {
-      const status = document.querySelector("#ssh-key-status");
-      try {
-        await navigator.clipboard.writeText(document.querySelector("#ssh-public-key").value);
-        setLocalizedText(status, "settings.sshKeyCopied");
-      } catch (error) {
-        console.error("SSH public key copy failed", error);
-        setLocalizedError(status, error, "errors.generic");
-      }
-    });
-    document.querySelector("#rotate-ssh-key").addEventListener("click", async (event) => {
+    document.querySelector("#save-ssh-key").addEventListener("click", async (event) => {
       const button = event.currentTarget;
       button.disabled = true;
       const status = document.querySelector("#ssh-key-status");
       try {
-        if (!confirm(i18n.t("settings.rotateSSHKeyConfirm"))) return;
-        clearLocalizedText(status);
-        const result = await api("/admin/api/ssh-key/rotate", {method: "POST"});
-        document.querySelector("#ssh-public-key").value = result.public_key || "";
+        const result = await api("/admin/api/ssh-key", {method: "PUT",
+          body: JSON.stringify({private_key: document.querySelector("#ssh-private-key").value})
+        });
+        sshKeyInfo = {
+          configured: !!result.configured,
+          fingerprint: result.fingerprint || ""
+        };
+        document.querySelector("#ssh-private-key").value = "";
+        renderSSHKeyState();
+        setLocalizedText(status, "settings.sshKeySaved");
       } catch (error) {
         if (error === staleSession) return;
+        if (error && error.code === "http_400") {
+          setLocalizedText(status, "settings.sshKeyInvalid");
+          return;
+        }
         setLocalizedError(status, error, "errors.generic");
       } finally {
         button.disabled = false;
+      }
+    });
+    document.querySelector("#clear-ssh-key").addEventListener("click", async () => {
+      if (!confirm(i18n.t("settings.clearSSHKeyConfirm"))) return;
+      const status = document.querySelector("#ssh-key-status");
+      try {
+        await api("/admin/api/ssh-key", {method: "DELETE"});
+        sshKeyInfo = {configured: false, fingerprint: ""};
+        document.querySelector("#ssh-private-key").value = "";
+        renderSSHKeyState();
+        setLocalizedText(status, "settings.sshKeyCleared");
+      } catch (error) {
+        if (error === staleSession) return;
+        setLocalizedError(status, error, "errors.generic");
       }
     });
     document.querySelector("#allow-lan").addEventListener("change", (event) => {

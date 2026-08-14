@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 
 	"github.com/coder/websocket"
@@ -59,6 +60,21 @@ func handleSSHPty(w http.ResponseWriter, r *http.Request, hub *athena.Hub, baseU
 		return
 	}
 
+	keyStore, err := sshkey.Open(dataDir)
+	if err != nil {
+		writeSSHPtyError(r.Context(), conn, "tunnel_failed")
+		return
+	}
+	signer, err := keyStore.Signer()
+	if errors.Is(err, os.ErrNotExist) {
+		writeSSHPtyError(r.Context(), conn, "key_unconfigured")
+		return
+	}
+	if err != nil {
+		writeSSHPtyError(r.Context(), conn, "tunnel_failed")
+		return
+	}
+
 	addr, port, cancelTunnel, err := openDeviceTunnel(r.Context(), hub, r.PathValue("dongleID"))
 	if errors.Is(err, athena.ErrOffline) {
 		writeSSHPtyError(r.Context(), conn, "offline")
@@ -72,16 +88,6 @@ func handleSSHPty(w http.ResponseWriter, r *http.Request, hub *athena.Hub, baseU
 		defer cancelTunnel()
 	}
 
-	keyStore, err := sshkey.Open(dataDir)
-	if err != nil {
-		writeSSHPtyError(r.Context(), conn, "tunnel_failed")
-		return
-	}
-	signer, err := keyStore.Signer()
-	if err != nil {
-		writeSSHPtyError(r.Context(), conn, "tunnel_failed")
-		return
-	}
 	session, err := sshsession.Connect(r.Context(), addr, signer, size.Cols, size.Rows)
 	if errors.Is(err, sshsession.ErrAuthFailed) {
 		writeSSHPtyError(r.Context(), conn, "auth_failed")

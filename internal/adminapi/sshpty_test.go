@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/json"
+	"encoding/pem"
 	"errors"
 	"io"
 	"net"
@@ -51,12 +52,14 @@ func TestSSHPtyRequiresAuthentication(t *testing.T) {
 }
 
 func TestSSHPtyReportsOfflineDevice(t *testing.T) {
+	dataDir := t.TempDir()
+	importPTYKey(t, dataDir)
 	setTunnelOpener(t, func(context.Context, *athena.Hub, string) (string, int, func(), error) {
 		return "", 0, nil, athena.ErrOffline
 	})
 	server, token := newPTYHTTPServer(t, config.Config{
 		JWTSecret:     ptyTestSecret,
-		DataDir:       t.TempDir(),
+		DataDir:       dataDir,
 		PublicBaseURL: "https://admin.example.com",
 	})
 
@@ -82,12 +85,14 @@ func TestSSHPtyReportsMissingPublicBase(t *testing.T) {
 }
 
 func TestSSHPtyReportsTunnelFailure(t *testing.T) {
+	dataDir := t.TempDir()
+	importPTYKey(t, dataDir)
 	setTunnelOpener(t, func(context.Context, *athena.Hub, string) (string, int, func(), error) {
 		return "", 0, nil, errors.New("tunnel unavailable")
 	})
 	server, token := newPTYHTTPServer(t, config.Config{
 		JWTSecret:     ptyTestSecret,
-		DataDir:       t.TempDir(),
+		DataDir:       dataDir,
 		PublicBaseURL: "https://admin.example.com",
 	})
 
@@ -99,15 +104,8 @@ func TestSSHPtyReportsTunnelFailure(t *testing.T) {
 
 func TestSSHPtyConnectsUsingStoredKey(t *testing.T) {
 	dataDir := t.TempDir()
-	keyStore, err := sshkey.Open(dataDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	signer, err := keyStore.Signer()
-	if err != nil {
-		t.Fatal(err)
-	}
-	sshAddr := startPTYSSHServer(t, signer.PublicKey(), false)
+	pub := importPTYKey(t, dataDir)
+	sshAddr := startPTYSSHServer(t, pub, false)
 	_, portText, err := net.SplitHostPort(sshAddr)
 	if err != nil {
 		t.Fatal(err)
@@ -178,15 +176,8 @@ func TestSSHPtyConnectsUsingStoredKey(t *testing.T) {
 
 func TestSSHPtyReportsRemoteShellExit(t *testing.T) {
 	dataDir := t.TempDir()
-	keyStore, err := sshkey.Open(dataDir)
-	if err != nil {
-		t.Fatal(err)
-	}
-	signer, err := keyStore.Signer()
-	if err != nil {
-		t.Fatal(err)
-	}
-	sshAddr := startPTYSSHServer(t, signer.PublicKey(), true)
+	pub := importPTYKey(t, dataDir)
+	sshAddr := startPTYSSHServer(t, pub, true)
 	_, portText, err := net.SplitHostPort(sshAddr)
 	if err != nil {
 		t.Fatal(err)
@@ -216,6 +207,8 @@ func TestSSHPtyReportsRemoteShellExit(t *testing.T) {
 }
 
 func TestSSHPtyReportsRejectedStoredKey(t *testing.T) {
+	dataDir := t.TempDir()
+	importPTYKey(t, dataDir)
 	sshAddr := startPTYSSHServer(t, newPTYSigner(t).PublicKey(), false)
 	_, portText, err := net.SplitHostPort(sshAddr)
 	if err != nil {
@@ -230,7 +223,7 @@ func TestSSHPtyReportsRejectedStoredKey(t *testing.T) {
 	})
 	server, token := newPTYHTTPServer(t, config.Config{
 		JWTSecret:     ptyTestSecret,
-		DataDir:       t.TempDir(),
+		DataDir:       dataDir,
 		PublicBaseURL: "https://admin.example.com",
 	})
 
@@ -238,6 +231,26 @@ func TestSSHPtyReportsRejectedStoredKey(t *testing.T) {
 	defer conn.CloseNow()
 	writePTYSize(t, conn)
 	assertPTYError(t, conn, "auth_failed")
+}
+
+func TestSSHPtyReportsUnconfiguredKeyWithoutOpeningTunnel(t *testing.T) {
+	opened := false
+	setTunnelOpener(t, func(context.Context, *athena.Hub, string) (string, int, func(), error) {
+		opened = true
+		return "", 0, func() {}, nil
+	})
+	server, token := newPTYHTTPServer(t, config.Config{
+		JWTSecret:     ptyTestSecret,
+		DataDir:       t.TempDir(),
+		PublicBaseURL: "https://admin.example.com",
+	})
+	conn := dialPTY(t, server.URL, token)
+	defer conn.CloseNow()
+	writePTYSize(t, conn)
+	assertPTYError(t, conn, "key_unconfigured")
+	if opened {
+		t.Fatal("opened tunnel before SSH key was configured")
+	}
 }
 
 func newPTYHTTPServer(t *testing.T, cfg config.Config) (*httptest.Server, string) {
@@ -350,6 +363,30 @@ func newPTYSigner(t *testing.T) ssh.Signer {
 		t.Fatal(err)
 	}
 	return signer
+}
+
+func importPTYKey(t *testing.T, dataDir string) ssh.PublicKey {
+	t.Helper()
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, err := ssh.MarshalPrivateKey(privateKey, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	keyStore, err := sshkey.Open(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := keyStore.Import(pem.EncodeToMemory(block)); err != nil {
+		t.Fatal(err)
+	}
+	signer, err := ssh.NewSignerFromKey(privateKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return signer.PublicKey()
 }
 
 func startPTYSSHServer(t *testing.T, allowed ssh.PublicKey, closeAfterGreeting bool) string {

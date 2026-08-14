@@ -619,13 +619,17 @@ func TestAdminHTMLContainsReplayHooks(t *testing.T) {
 func TestAdminHTMLContainsSSHKeyAndTerminalHooks(t *testing.T) {
 	html := string(indexHTML)
 	for _, want := range []string{
-		`id="ssh-public-key"`,
-		`id="copy-ssh-key"`,
-		`id="rotate-ssh-key"`,
+		`id="ssh-private-key"`,
+		`id="ssh-key-state"`,
+		`id="save-ssh-key"`,
+		`id="clear-ssh-key"`,
 		`devices.openTerminal`,
 		`id="view-ssh"`,
 		`src="/admin/vendor/xterm.min.js"`,
 		`/admin/api/devices/${encodeURIComponent(device.dongle_id)}/ssh/pty?access_token=`,
+		`key_unconfigured: "ssh.keyUnconfigured"`,
+		`api("/admin/api/ssh-key", {method: "PUT"`,
+		`api("/admin/api/ssh-key", {method: "DELETE"`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("admin HTML does not contain SSH hook %q", want)
@@ -634,6 +638,46 @@ func TestAdminHTMLContainsSSHKeyAndTerminalHooks(t *testing.T) {
 	for _, forbidden := range []string{"PRIVATE KEY", "id_ed25519"} {
 		if strings.Contains(html, forbidden) {
 			t.Errorf("admin HTML exposes private key material marker %q", forbidden)
+		}
+	}
+}
+
+func TestAdminHTMLLoadsSettingsWhenSSHKeyLoadFails(t *testing.T) {
+	html := adminInlineHTML(t)
+	loadSettings := adminFunction(t, html, "async function loadSettings()", "\n    function applyMapSettings")
+	for _, want := range []string{
+		`Promise.allSettled([`,
+		`api("/admin/api/settings")`,
+		`api("/admin/api/ssh-key")`,
+	} {
+		if !strings.Contains(loadSettings, want) {
+			t.Errorf("loadSettings does not contain independent settings hook %q", want)
+		}
+	}
+	if !strings.Contains(html, `settings.sshKeyCorrupt`) {
+		t.Error("admin HTML does not contain the corrupt SSH key status")
+	}
+	if strings.Contains(loadSettings, "Promise.all([") {
+		t.Error("loadSettings must not gate settings on SSH key success")
+	}
+}
+
+func TestAdminHTMLPreservesUnsavedSSHKeyOnLanguageSwitch(t *testing.T) {
+	html := adminInlineHTML(t)
+	renderState := adminFunction(t, html, "function renderSSHKeyState()", "\n    function localizedError")
+	if strings.Contains(renderState, `input.value = ""`) {
+		t.Error("renderSSHKeyState must not clear an unsaved private key")
+	}
+
+	saveHandler := adminFunction(t, html,
+		`document.querySelector("#save-ssh-key").addEventListener`,
+		`document.querySelector("#clear-ssh-key").addEventListener`)
+	clearHandler := adminFunction(t, html,
+		`document.querySelector("#clear-ssh-key").addEventListener`,
+		`document.querySelector("#allow-lan").addEventListener`)
+	for name, handler := range map[string]string{"save": saveHandler, "clear": clearHandler} {
+		if !strings.Contains(handler, `document.querySelector("#ssh-private-key").value = "";`) {
+			t.Errorf("%s handler must clear the private key after success", name)
 		}
 	}
 }
@@ -679,20 +723,20 @@ func TestAdminHTMLReportsRemoteSSHCloseWithoutFlashingOnLocalClose(t *testing.T)
 	}
 }
 
-func TestAdminHTMLDisablesSSHKeyRotateUntilRequestFinishes(t *testing.T) {
+func TestAdminHTMLDisablesSSHKeySaveUntilRequestFinishes(t *testing.T) {
 	html := adminInlineHTML(t)
 	handler := adminFunction(t, html,
-		`document.querySelector("#rotate-ssh-key").addEventListener`,
-		`document.querySelector("#allow-lan").addEventListener`)
+		`document.querySelector("#save-ssh-key").addEventListener`,
+		`document.querySelector("#clear-ssh-key").addEventListener`)
 	disabled := strings.Index(handler, `button.disabled = true;`)
-	request := strings.Index(handler, `api("/admin/api/ssh-key/rotate"`)
+	request := strings.Index(handler, `api("/admin/api/ssh-key", {method: "PUT"`)
 	finally := strings.Index(handler, `} finally {`)
 	enabled := strings.Index(handler, `button.disabled = false;`)
 	if disabled < 0 || request < 0 || disabled > request {
-		t.Error("rotate handler must disable the button before starting the request")
+		t.Error("save handler must disable the button before starting the request")
 	}
 	if finally < 0 || enabled < finally {
-		t.Error("rotate handler must re-enable the button in finally")
+		t.Error("save handler must re-enable the button in finally")
 	}
 }
 

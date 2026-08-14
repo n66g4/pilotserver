@@ -1,9 +1,12 @@
 package sshkey_test
 
 import (
+	"crypto/ed25519"
+	"crypto/rand"
+	"encoding/pem"
+	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"golang.org/x/crypto/ssh"
@@ -11,18 +14,36 @@ import (
 	"pilotserver/internal/sshkey"
 )
 
-func TestOpenCreatesEd25519AndNeverExposesPrivateKey(t *testing.T) {
+func TestStatusUnconfiguredWhenMissing(t *testing.T) {
+	store, err := sshkey.Open(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	status, err := store.Status()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Configured || status.Fingerprint != "" {
+		t.Fatalf("status = %+v", status)
+	}
+	if _, err := store.Signer(); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("Signer() error = %v, want ErrNotExist", err)
+	}
+}
+
+func TestImportPersistsKeyAndReportsFingerprint(t *testing.T) {
 	dir := t.TempDir()
 	store, err := sshkey.Open(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	pub, err := store.PublicKey()
+	pemBytes, wantFP := testPrivateKeyPEM(t)
+	status, err := store.Import(pemBytes)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.HasPrefix(pub, "ssh-ed25519 ") {
-		t.Fatalf("public_key = %q", pub)
+	if !status.Configured || status.Fingerprint != wantFP {
+		t.Fatalf("status = %+v, want fingerprint %q", status, wantFP)
 	}
 	info, err := os.Stat(filepath.Join(dir, "ssh", "id_ed25519"))
 	if err != nil {
@@ -31,77 +52,114 @@ func TestOpenCreatesEd25519AndNeverExposesPrivateKey(t *testing.T) {
 	if info.Mode().Perm() != 0o600 {
 		t.Fatalf("perm = %o", info.Mode().Perm())
 	}
-	publicInfo, err := os.Stat(filepath.Join(dir, "ssh", "id_ed25519.pub"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if publicInfo.Mode().Perm() != 0o644 {
-		t.Fatalf("public perm = %o", publicInfo.Mode().Perm())
+	if _, err := os.Stat(filepath.Join(dir, "ssh", "id_ed25519.pub")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("did not want a .pub file")
 	}
 	again, err := sshkey.Open(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := again.PublicKey()
+	second, err := again.Status()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if second != pub {
-		t.Fatal("reopen changed public key")
+	if second != status {
+		t.Fatalf("reopen status = %+v, want %+v", second, status)
 	}
-	rotated, err := store.Rotate()
-	if err != nil {
+	if _, err := store.Signer(); err != nil {
 		t.Fatal(err)
-	}
-	if rotated == pub {
-		t.Fatal("rotate returned the same public key")
 	}
 }
 
-func TestSignerCreatesKeypairWhenMissing(t *testing.T) {
-	store, err := sshkey.Open(t.TempDir())
-	if err != nil {
-		t.Fatal(err)
-	}
-	signer, err := store.Signer()
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !strings.HasPrefix(string(ssh.MarshalAuthorizedKey(signer.PublicKey())), "ssh-ed25519 ") {
-		t.Fatalf("signer public key type = %s", signer.PublicKey().Type())
-	}
-}
-
-func TestPublicKeyRepairsExistingPermissions(t *testing.T) {
+func TestImportRejectsInvalidAndPassphraseKeysWithoutWriting(t *testing.T) {
 	dir := t.TempDir()
 	store, err := sshkey.Open(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.PublicKey(); err != nil {
+	good, _ := testPrivateKeyPEM(t)
+	if _, err := store.Import(good); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.ReadFile(filepath.Join(dir, "ssh", "id_ed25519"))
+	if err != nil {
 		t.Fatal(err)
 	}
 
+	if _, err := store.Import([]byte("not-a-key")); !errors.Is(err, sshkey.ErrInvalidKey) {
+		t.Fatalf("invalid key error = %v", err)
+	}
+	passphrasePEM := testPassphrasePrivateKeyPEM(t)
+	if _, err := store.Import(passphrasePEM); !errors.Is(err, sshkey.ErrInvalidKey) {
+		t.Fatalf("passphrase key error = %v", err)
+	}
+	after, err := os.ReadFile(filepath.Join(dir, "ssh", "id_ed25519"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(after) != string(before) {
+		t.Fatal("rejected import overwrote the stored key")
+	}
+}
+
+func TestClearRemovesPrivateAndLeftoverPublicKey(t *testing.T) {
+	dir := t.TempDir()
+	store, err := sshkey.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pemBytes, _ := testPrivateKeyPEM(t)
+	if _, err := store.Import(pemBytes); err != nil {
+		t.Fatal(err)
+	}
+	pubPath := filepath.Join(dir, "ssh", "id_ed25519.pub")
+	if err := os.WriteFile(pubPath, []byte("ssh-ed25519 leftover"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Clear(); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Clear(); err != nil {
+		t.Fatal(err)
+	}
+	status, err := store.Status()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if status.Configured {
+		t.Fatal("still configured after Clear")
+	}
+	for _, name := range []string{"id_ed25519", "id_ed25519.pub"} {
+		if _, err := os.Stat(filepath.Join(dir, "ssh", name)); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("%s still exists", name)
+		}
+	}
+}
+
+func TestStatusRepairsPrivateKeyPermissions(t *testing.T) {
+	dir := t.TempDir()
+	store, err := sshkey.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pemBytes, _ := testPrivateKeyPEM(t)
+	if _, err := store.Import(pemBytes); err != nil {
+		t.Fatal(err)
+	}
 	sshDir := filepath.Join(dir, "ssh")
 	privatePath := filepath.Join(sshDir, "id_ed25519")
-	publicPath := filepath.Join(sshDir, "id_ed25519.pub")
 	if err := os.Chmod(sshDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Chmod(privatePath, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.Chmod(publicPath, 0o666); err != nil {
-		t.Fatal(err)
-	}
-
-	if _, err := store.PublicKey(); err != nil {
+	if _, err := store.Status(); err != nil {
 		t.Fatal(err)
 	}
 	for path, want := range map[string]os.FileMode{
 		sshDir:      0o700,
 		privatePath: 0o600,
-		publicPath:  0o644,
 	} {
 		info, err := os.Stat(path)
 		if err != nil {
@@ -113,21 +171,46 @@ func TestPublicKeyRepairsExistingPermissions(t *testing.T) {
 	}
 }
 
-func TestRotateWritesMatchingPublicAndPrivateKeys(t *testing.T) {
-	store, err := sshkey.Open(t.TempDir())
+func TestStatusErrorsOnCorruptKey(t *testing.T) {
+	dir := t.TempDir()
+	store, err := sshkey.Open(dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	publicKey, err := store.Rotate()
+	if err := os.WriteFile(filepath.Join(dir, "ssh", "id_ed25519"), []byte("corrupt"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Status(); err == nil {
+		t.Fatal("Status() succeeded on corrupt key")
+	}
+}
+
+func testPrivateKeyPEM(t *testing.T) ([]byte, string) {
+	t.Helper()
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
-	signer, err := store.Signer()
+	block, err := ssh.MarshalPrivateKey(privateKey, "")
 	if err != nil {
 		t.Fatal(err)
 	}
-	signerPublicKey := strings.TrimSpace(string(ssh.MarshalAuthorizedKey(signer.PublicKey())))
-	if signerPublicKey != publicKey {
-		t.Fatalf("private key public part = %q, want %q", signerPublicKey, publicKey)
+	signer, err := ssh.NewSignerFromKey(privateKey)
+	if err != nil {
+		t.Fatal(err)
 	}
+	return pem.EncodeToMemory(block), ssh.FingerprintSHA256(signer.PublicKey())
+}
+
+func testPassphrasePrivateKeyPEM(t *testing.T) []byte {
+	t.Helper()
+	_, privateKey, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	block, err := ssh.MarshalPrivateKeyWithPassphrase(privateKey, "", []byte("secret"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return pem.EncodeToMemory(block)
 }
