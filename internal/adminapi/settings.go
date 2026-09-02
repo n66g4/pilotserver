@@ -16,14 +16,17 @@ import (
 var settingsUpdateMu sync.Mutex
 
 type settingsResponse struct {
-	PublicBaseURL   string `json:"public_base_url"`
-	ListenAddr      string `json:"listen_addr"`
-	AllowLAN        bool   `json:"allow_lan"`
-	Configured      bool   `json:"configured"`
-	ListenChanged   bool   `json:"listen_changed"`
-	MapProvider     string `json:"map_provider"`
-	MapWebKey       string `json:"map_web_key"`
-	MapSecurityCode string `json:"map_security_code"`
+	PublicBaseURL        string `json:"public_base_url"`
+	ListenAddr           string `json:"listen_addr"`
+	AllowLAN             bool   `json:"allow_lan"`
+	Configured           bool   `json:"configured"`
+	ListenChanged        bool   `json:"listen_changed"`
+	MapProvider          string `json:"map_provider"`
+	MapWebKey            string `json:"map_web_key"`
+	MapSecurityCode      string `json:"map_security_code"`
+	UploadMaxBytes       int64  `json:"upload_max_bytes"`
+	UploadRetentionDays  int    `json:"upload_retention_days"`
+	UploadUsedBytes      int64  `json:"upload_used_bytes"`
 }
 
 func currentSettings(st *store.Store, baseURL *publicbase.Resolver, listen *listenaddr.Resolver) (settingsResponse, error) {
@@ -46,6 +49,17 @@ func currentSettings(st *store.Store, baseURL *publicbase.Resolver, listen *list
 	response.MapProvider = mapSettings.Provider
 	response.MapWebKey = mapSettings.WebKey
 	response.MapSecurityCode = mapSettings.SecurityCode
+	policy, err := st.UploadPolicy()
+	if err != nil {
+		return response, err
+	}
+	response.UploadMaxBytes = policy.MaxBytes
+	response.UploadRetentionDays = policy.RetentionDays
+	used, err := st.TotalUploadBytes()
+	if err != nil {
+		return response, err
+	}
+	response.UploadUsedBytes = used
 	return response, nil
 }
 
@@ -67,6 +81,8 @@ func handlePutSettings(w http.ResponseWriter, r *http.Request, st *store.Store, 
 		MapProvider     *string `json:"map_provider"`
 		MapWebKey       *string `json:"map_web_key"`
 		MapSecurityCode *string `json:"map_security_code"`
+		UploadMaxBytes      *int64 `json:"upload_max_bytes"`
+		UploadRetentionDays *int   `json:"upload_retention_days"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
@@ -145,6 +161,36 @@ func handlePutSettings(w http.ResponseWriter, r *http.Request, st *store.Store, 
 			} else {
 				http.Error(w, "save settings", http.StatusInternalServerError)
 			}
+			return
+		}
+	}
+
+	if request.UploadMaxBytes != nil || request.UploadRetentionDays != nil {
+		if st == nil {
+			http.Error(w, "settings unavailable", http.StatusInternalServerError)
+			return
+		}
+		policy, err := st.UploadPolicy()
+		if err != nil {
+			http.Error(w, "read settings", http.StatusInternalServerError)
+			return
+		}
+		if request.UploadMaxBytes != nil {
+			if *request.UploadMaxBytes < 0 {
+				http.Error(w, "invalid upload max bytes", http.StatusBadRequest)
+				return
+			}
+			policy.MaxBytes = *request.UploadMaxBytes
+		}
+		if request.UploadRetentionDays != nil {
+			if *request.UploadRetentionDays < 0 || *request.UploadRetentionDays > 3650 {
+				http.Error(w, "invalid upload retention days", http.StatusBadRequest)
+				return
+			}
+			policy.RetentionDays = *request.UploadRetentionDays
+		}
+		if err := st.SetUploadPolicy(policy); err != nil {
+			http.Error(w, "save settings", http.StatusInternalServerError)
 			return
 		}
 	}

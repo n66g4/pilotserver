@@ -61,6 +61,10 @@ func Open(dataDir string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("apply settings schema: %w", err)
 	}
+	if err := s.initSSHAudit(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("apply ssh audit schema: %w", err)
+	}
 
 	return s, nil
 }

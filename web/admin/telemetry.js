@@ -342,9 +342,9 @@
       const ctx = staticLayer.getContext("2d");
       ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
       ctx.clearRect(0, 0, rect.width, rect.height);
-      ctx.fillStyle = "#071013";
+      ctx.fillStyle = "#171A20";
       ctx.fillRect(0, 0, rect.width, rect.height);
-      ctx.strokeStyle = "#17343b";
+      ctx.strokeStyle = "#393C41";
       ctx.lineWidth = 1;
       for (let x = 20; x < rect.width; x += 40) {
         ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, rect.height); ctx.stroke();
@@ -369,7 +369,7 @@
         y: rect.height - pad - (point.lat - minLat) / latRange * Math.max(1, rect.height - pad * 2)
       });
       const drawPoints = downsampleGPS(points, Math.max(2, rect.width * 2));
-      ctx.strokeStyle = "#27d3c2";
+      ctx.strokeStyle = "#3E6AE1";
       ctx.lineWidth = 3;
       ctx.lineJoin = "round";
       ctx.beginPath();
@@ -389,11 +389,11 @@
       ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
       if (current && project) {
         const marker = project(current);
-        ctx.fillStyle = "#ffb224";
+        ctx.fillStyle = "#FFFFFF";
         ctx.beginPath();
         ctx.arc(marker.x, marker.y, 6, 0, Math.PI * 2);
         ctx.fill();
-        ctx.strokeStyle = "#fff4d6";
+        ctx.strokeStyle = "#3E6AE1";
         ctx.lineWidth = 2;
         ctx.stroke();
       }
@@ -424,7 +424,7 @@
     if (provider === "amap") {
       const map = new window.AMap.Map(target, {zoom: 13, viewMode: "2D"});
       const path = points.map((point) => [point.lon, point.lat]);
-      const line = new window.AMap.Polyline({path, strokeColor: "#16d9c4", strokeWeight: 5});
+      const line = new window.AMap.Polyline({path, strokeColor: "#3E6AE1", strokeWeight: 5});
       const marker = new window.AMap.Marker({position: path[0]});
       map.add([line, marker]);
       if (path.length > 1) map.setFitView([line], false, [36, 36, 36, 36]);
@@ -443,7 +443,7 @@
     const path = points.map((point) => new window.TMap.LatLng(point.lat, point.lon));
     const line = new window.TMap.MultiPolyline({
       map,
-      styles: {route: new window.TMap.PolylineStyle({color: "#16d9c4", width: 5})},
+      styles: {route: new window.TMap.PolylineStyle({color: "#3E6AE1", width: 5})},
       geometries: [{id: "route", styleId: "route", paths: path}]
     });
     const marker = new window.TMap.MultiMarker({
@@ -808,7 +808,7 @@
       const ctx = chartStaticLayer.getContext("2d");
       ctx.setTransform(ratio, 0, 0, ratio, 0, 0);
       ctx.clearRect(0, 0, rect.width, rect.height);
-      ctx.fillStyle = "#071013";
+      ctx.fillStyle = "#171A20";
       ctx.fillRect(0, 0, rect.width, rect.height);
       const left = 36, right = 12, top = 16, bottom = 28;
       const plotWidth = Math.max(1, rect.width - left - right);
@@ -816,7 +816,7 @@
       const duration = Math.max(data.duration, 0.001);
       const xAt = (time) => left + Math.max(0, Math.min(duration, time)) / duration * plotWidth;
 
-      ctx.fillStyle = "#193139";
+      ctx.fillStyle = "#393C41";
       for (const segment of data.overview) {
         if (!segment.has_video) {
           const x = xAt(segment.start);
@@ -847,13 +847,13 @@
       }
       const enabledBins = materializeBandBins(enabledDiff);
       const activeBins = materializeBandBins(activeDiff);
-      drawBandBins(ctx, enabledBins, left, plotWidth, top + plotHeight - 16, "#1d6b5f66");
-      drawBandBins(ctx, activeBins, left, plotWidth, top + plotHeight - 8, "#d7922466");
+      drawBandBins(ctx, enabledBins, left, plotWidth, top + plotHeight - 16, "#3E6AE166");
+      drawBandBins(ctx, activeBins, left, plotWidth, top + plotHeight - 8, "#5C5E6266");
 
       if (data.speeds.length) {
         const maxSpeed = Math.max(1, data.maxSpeed);
         const drawSpeeds = downsampleSpeeds(data.speeds, Math.max(2, plotWidth * 2));
-        ctx.strokeStyle = "#22d3c5";
+        ctx.strokeStyle = "#3E6AE1";
         ctx.lineWidth = 2;
         ctx.beginPath();
         drawSpeeds.forEach((sample, index) => {
@@ -863,8 +863,8 @@
         });
         ctx.stroke();
       }
-      ctx.fillStyle = "#91a8ae";
-      ctx.font = "11px monospace";
+      ctx.fillStyle = "#8E8E8E";
+      ctx.font = "11px Arial, sans-serif";
       ctx.fillText(translate("telemetry.chartTitle"), left, rect.height - 8);
       elements.chart.setAttribute("aria-valuemax", String(Math.max(0, data.duration)));
     }
@@ -906,7 +906,7 @@
       const plotHeight = Math.max(1, rect.height - top - bottom);
       const duration = Math.max(data.duration, 0.001);
       const cursorX = left + Math.max(0, Math.min(duration, cursor)) / duration * plotWidth;
-      ctx.strokeStyle = "#ffb224";
+      ctx.strokeStyle = "#FFFFFF";
       ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(cursorX, top); ctx.lineTo(cursorX, top + plotHeight); ctx.stroke();
       elements.chart.setAttribute("aria-valuenow", String(Math.max(0, Math.min(data.duration, cursor))));

@@ -7,7 +7,7 @@
 1. 在线播放已上传的 `qcamera.ts`，支持单个 60 秒分段和整条行程连续播放。
 2. 原生解析 `qlog.zst`，展示速度、GPS 轨迹、openpilot 控制状态和告警，并与视频时间同步。
 
-完整 `rlog.zst` 信号分析和 Cabana 集成不在本次范围内，后续复用本设计中的媒体鉴权、文件定位和遥测缓存能力。
+完整 `rlog.zst` 信号分析和 Cabana **不**集成进 pilotserver。需要时用本机 Qt Cabana 打开已下载行程；本设计中的媒体鉴权、文件定位和遥测缓存仅服务管理端自研回放。
 
 ## 2. 已确认约束
 
@@ -362,13 +362,8 @@ go build -o bin/pilotserver ./cmd/pilotserver
 
 成功标准：播放或拖动视频时，车速、控制状态、曲线游标和地图位置同步更新；缺失或损坏的单段不会阻断整条行程其他部分。
 
-## 13. 后续 Cabana 边界
+## 13. 与 Cabana 的边界
 
-完整 `rlog.zst`、原始 CAN 信号和 dbc 分析继续交给后续 Cabana 集成。Cabana 可复用：
+完整 `rlog.zst`、原始 CAN 信号和 DBC 分析由本机 [Qt Cabana](https://github.com/commaai/openpilot/tree/master/openpilot/tools/cabana) 完成，**不**接入 pilotserver。本服务不提供 `/cabana/`，也不把 rlog 转成 Cabana 用的 Web JSON。
 
-- 安全 Locator
-- 媒体/文件票据
-- 行程与分段摘要
-- qlog 缓存时间轴
-
-本次不把完整 rlog 转换为 JSON，也不在自研管理页复制 Cabana 的信号分析能力。
+管理端回放只做 `qcamera` + `qlog` 遥测；Cabana 可自行读取用户下载的上传目录。

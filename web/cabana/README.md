@@ -1,19 +1,8 @@
-# Cabana 静态资源（占位）
+# Cabana（不集成）
 
-第一期 **不集成** 完整 Cabana 行程回放；管理端仅提供设备列表、SSH 与路线元数据查询。
+pilotserver **不**集成 Cabana（不做 `/cabana/` 网页，也不在 SPK 内嵌 Qt）。
 
-## 后续计划（第二期）
+- 行程视频与 `qlog` 遥测：用管理端自研回放。
+- CAN / DBC / 完整 `rlog`、新车型 port：在本机使用官方 [Qt Cabana](https://github.com/commaai/openpilot/tree/master/openpilot/tools/cabana)（或独立桌面发行版），读取已下载或 NAS 上的 `uploads/` 即可。
 
-1. 从开源 [Cabana](https://github.com/commaai/cabana) 构建静态产物（或拷贝已构建的 `dist/`）。
-2. 将静态文件放入本目录（或子目录 `dist/`）。
-3. 由 Nginx 挂载，例如：
-
-   ```nginx
-   location /cabana/ {
-       alias /path/to/pilotserver/web/cabana/dist/;
-   }
-   ```
-
-4. 配置 Cabana 读取 pilotserver 已上传的 route/segment 数据（路径与 admin API 对齐）。
-
-当前目录仅作占位，便于部署文档引用；无需在本期编译或打包 Cabana。
+旧的 Web Cabana（[commaai/cabana](https://github.com/commaai/cabana)）已废弃，不要往本目录拷静态资源。

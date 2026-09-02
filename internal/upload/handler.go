@@ -104,6 +104,7 @@ func (h *Handler) put(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "record upload", http.StatusInternalServerError)
 		return
 	}
+	pruneUploads(h.store, h.dataDir, store.Segment{DongleID: claim.DongleID, RelPath: claim.RelPath})
 	w.WriteHeader(http.StatusCreated)
 }
 

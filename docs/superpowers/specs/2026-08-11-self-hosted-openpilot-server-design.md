@@ -14,25 +14,25 @@
 2. Athena 长连接在线；管理端可显示在线状态。
 3. **外网可通过 Athena `startLocalProxy` 隧道 SSH 到设备**（不依赖 frp 等旁路二进制）。
 4. 行程日志/视频可上传，网页可列出与下载。
-5. 设备可从自建 OTA 源检查版本并完成更新。
-6. 设备上无自建额外二进制；仅 URL/域名指向本服务。
-7. 地图与 billing 桩响应不阻断主流程。
+5. 设备上无自建额外二进制；仅 URL/域名指向本服务。
+6. 地图与 billing 桩响应不阻断主流程。
 
 ### 1.2 非目标（第一期）
 
-- 完整 Mapbox/高德导航实现（可后补）。
+- 完整 Mapbox/高德导航后端（openpilot 已删除 NOO；maps 接口仅桩，避免挡主流程）。
 - 多租户、公开注册、计费。
 - 进程内 TLS 或内嵌反向代理（使用现有 Nginx）。
 - 兼容官方 Comma Connect 手机 App（以自建 Web 管理端为准）。
+- 设备自动 HTTP OTA（车上软件更新走 Git updater / Git remote，不要求自建 `/ota/` 自动更新）。
 
 ## 2. 约束与决策摘要
 
 | 项 | 决策 |
 |----|------|
-| 功能范围 | 接近官方全栈；地图第一期桩掉 |
-| 服务端策略 | 混合：核心协议自研，管理端/Cabana 等复用开源 |
+| 功能范围 | 接近官方全栈；车上导航地图仅桩，不做 NOO 后端 |
+| 服务端策略 | 混合：核心协议自研；管理端自研；不做 Cabana 集成 |
 | 规模 | 个人 1–5 台设备 |
-| OTA | 第一期提供完整更新源（检查 + 产物下载） |
+| OTA | 第一期不要求 HTTP 自动更新；车上用 Git updater |
 | 核心技术栈 | Go 单体 |
 | 设备侧 | 零额外可执行文件；改 fork 默认 `API_HOST` / `ATHENA_HOST` 等 |
 | 入口 | 复用私有云已有 Nginx（TLS + 反代）；Go 只监听内网 |
@@ -44,16 +44,13 @@
 [DragonPilot 设备]                         [私有云]
   athenad ──wss──┐
   Api/上传 ─https─┼──► 已有 Nginx (443/TLS, DDNS)
-  updater ─https─┘         │
-                           ├─ /ws/     → 127.0.0.1:8080  (WebSocket Upgrade)
-                           ├─ /v1* …   → 127.0.0.1:8080
-                           ├─ 上传路径 → 127.0.0.1:8080  (大 body / 长超时)
-                           ├─ /ota/    → Go 或静态目录
-                           ├─ /admin/  → 静态 + admin API
-                           └─ /cabana/ → 静态（复用开源）
+  Git updater ───┘                         ├─ /ws/     → 127.0.0.1:8080
+       │                                   ├─ /v1* …   → 127.0.0.1:8080
+       └─► 自建 Git remote（不经本服务）     ├─ 上传路径 → 127.0.0.1:8080
+                                           └─ /admin/  → 静态 + admin API
 
                            Go pilotserver (仅 127.0.0.1:8080)
-                           ├─ auth / api / athena / upload / ota
+                           ├─ auth / api / athena / upload
                            ├─ billing+maps 桩
                            ├─ adminapi
                            └─ store: SQLite + 本地文件目录
@@ -66,8 +63,8 @@
 - `API_HOST`
 - `ATHENA_HOST`
 - 上传相关 URL（与 fork 中 uploader 实际读取处对齐）
-- OTA / release 检查与下载入口
-- `MAPS_HOST`：第一期可指向本域桩接口，或保持兼容空响应
+- Git updater 的 remote（自建 Git 仓库或可达的 fork remote；不走本服务 `/ota/`）
+- `MAPS_HOST`：可指向本域 `/v1/maps/` 桩（空 JSON）；不做导航算路。
 
 可选：在设备 `/data/launch_env.sh` 用 `export` 临时覆盖，便于调试（仍不是新可执行文件）。
 
@@ -95,13 +92,13 @@
 | `internal/api` | 配对、设备、路线元数据等 HTTP API |
 | `internal/athena` | WebSocket JSON-RPC；含 `echo`、上传队列相关、`startLocalProxy` |
 | `internal/upload` | 签名 URL 校验后直传落盘（第一期不走第三方对象存储） |
-| `internal/ota` | 版本检查、产物 URL/索引 |
+| `internal/ota` | 可选遗留：HTTP `version.json` + 静态产物；第一期不用于设备自动更新 |
 | `internal/billing` | 桩：报告有效订阅，避免挡主流程 |
 | `internal/maps` | 桩：兼容空/最小响应 |
 | `internal/adminapi` | 管理端 API：设备、在线、行程、SSH/远程指令 |
 | `internal/store` | SQLite + 文件系统布局 |
 
-协议路径与字段以 **DragonPilot fork 实际请求** 为真相源（`common/api`、`athenad`、uploader、updater），用契约测试锁定，而非死记某一版官方文档。
+协议路径与字段以 **DragonPilot fork 实际请求** 为真相源（`common/api`、`athenad`、uploader）；路径差异通过 `internal/api/paths.go` 集中调整。
 
 ### 4.1 主要数据流
 
@@ -109,8 +106,7 @@
 2. **在线：** Athena 长连接；心跳/LastAthenaPing 类状态供管理端展示。  
 3. **SSH：** 管理端 → adminapi → athena `startLocalProxy` → 用户经代理 SSH。  
 4. **上传：** 设备凭短时签名 URL PUT/POST 到本域 → 文件按 `dongle/route/segment` 落盘 → DB 记元数据。  
-5. **OTA：** 设备查询分支最新版本 → 返回 version + 下载 URL（可由 Nginx 静态托管产物）。  
-6. **管理浏览：** 浏览器 → Nginx → admin 静态页 + adminapi；Cabana 读已上传数据。
+5. **管理浏览：** 浏览器 → Nginx → admin 静态页 + adminapi（行程回放自研；CAN/DBC 用本机 Qt Cabana，不经本服务）。
 
 ## 5. 部署
 
@@ -120,13 +116,12 @@
 - 反代到 `127.0.0.1:8080`。
 - WebSocket：`Upgrade` / `Connection`，超时加长。
 - 上传：增大 `client_max_body_size` 与读写超时。
-- OTA 产物可 `alias`/`root` 直接静态，或回源 Go。
 - 仓库提供 `deploy/nginx.example.conf` 供粘贴进现有配置，**不**在 Go 内集成 Caddy/Nginx。
 
 ### 5.2 进程与数据
 
 - systemd 或 Docker 运行 Go；只绑回环地址。
-- 持久化：SQLite 文件、行程目录、OTA 产物目录。
+- 持久化：SQLite 文件、行程目录。
 - 定期备份上述三类数据。
 
 ## 6. 安全
@@ -143,7 +138,6 @@
 data/
   pilotserver.db          # SQLite
   uploads/{dongle}/{route}/{segment}/...
-  ota/{branch|channel}/...
 ```
 
 个人 1–5 台默认 SQLite；若日后扩大规模再迁 Postgres，第一期不预做多租户抽象。
@@ -153,8 +147,8 @@ data/
 ```text
 cmd/pilotserver/
 internal/{api,athena,upload,ota,auth,store,adminapi,billing,maps}/
-web/admin/                 # 极简管理端
-web/cabana/                # 复用开源静态资源（submodule 或拷贝）
+web/admin/                 # 管理端
+web/cabana/                # 仅说明：不集成 Cabana
 deploy/nginx.example.conf
 docs/                      # 操作与协议对照
 ```
@@ -162,14 +156,14 @@ docs/                      # 操作与协议对照
 ## 9. 开源复用边界
 
 - **自研：** auth、api、athena（含 SSH 隧道编排）、upload、ota、store、adminapi。  
-- **复用/适配：** Cabana（行程回放）、管理端 UI 可参考 retropilot/rtz 的交互，但不强制运行其整套 Node 后端。  
-- **地图：** 第一期仅桩；后续可接高德等并在 fork 中改导航后端。
+- **复用/适配：** 管理端 UI 可参考 retropilot/rtz 的交互，但不强制运行其整套 Node 后端。不集成 Cabana（官方为 Qt 桌面工具；Web 版已废弃）。  
+- **地图：** 仅桩（空 JSON）。openpilot 已删除 NOO，不实现车上导航地图后端。管理端回放底图与车上导航无关。
 
 ## 10. 风险与缓解
 
 | 风险 | 缓解 |
 |------|------|
-| fork 与官方 API 路径有漂移 | 以本机抓包/日志 + 契约测试对齐 fork |
+| fork 与官方 API 路径有漂移 | 对照 fork 源码与设备日志，改 `internal/api/paths.go` |
 | DDNS 证书/WebSocket 不稳 | Nginx 示例配置；监控 Athena 重连 |
 | 上传占满磁盘 | 配额、保留策略、磁盘告警（个人规模先做简单清理策略） |
 | SSH 隧道被滥用 | 仅管理员、短时、审计 |
@@ -180,10 +174,9 @@ docs/                      # 操作与协议对照
 2. Athena 长连接 + 在线状态  
 3. SSH `startLocalProxy` 端到端  
 4. 上传 + 行程列表/下载  
-5. OTA 检查与产物  
-6. billing/maps 桩  
-7. 管理端 UI + Cabana 粘合  
-8. Nginx 示例与文档；DragonPilot fork 默认 URL 补丁说明  
+5. billing/maps 桩  
+6. 管理端 UI  
+7. Nginx 示例与文档；DragonPilot fork 默认 URL 补丁说明（Git updater remote 不在本服务内）  
 
 ---
 

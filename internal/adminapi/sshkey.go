@@ -1,11 +1,13 @@
 package adminapi
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
 
 	"pilotserver/internal/sshkey"
+	"pilotserver/internal/store"
 )
 
 type sshKeyResponse struct {
@@ -13,10 +15,9 @@ type sshKeyResponse struct {
 	Fingerprint string `json:"fingerprint,omitempty"`
 }
 
-func handleGetSSHKey(w http.ResponseWriter, dataDir string) {
-	keyStore, err := sshkey.Open(dataDir)
-	if err != nil {
-		http.Error(w, "open SSH key store", http.StatusInternalServerError)
+func handleGetSSHKey(w http.ResponseWriter, r *http.Request, st *store.Store, dataDir string) {
+	keyStore, ok := openDeviceSSHKey(w, r, st, dataDir)
+	if !ok {
 		return
 	}
 	status, err := keyStore.Status()
@@ -27,7 +28,7 @@ func handleGetSSHKey(w http.ResponseWriter, dataDir string) {
 	writeSSHKey(w, status)
 }
 
-func handlePutSSHKey(w http.ResponseWriter, r *http.Request, dataDir string) {
+func handlePutSSHKey(w http.ResponseWriter, r *http.Request, st *store.Store, dataDir string) {
 	var request struct {
 		PrivateKey string `json:"private_key"`
 	}
@@ -35,9 +36,8 @@ func handlePutSSHKey(w http.ResponseWriter, r *http.Request, dataDir string) {
 		http.Error(w, "invalid request body", http.StatusBadRequest)
 		return
 	}
-	keyStore, err := sshkey.Open(dataDir)
-	if err != nil {
-		http.Error(w, "open SSH key store", http.StatusInternalServerError)
+	keyStore, ok := openDeviceSSHKey(w, r, st, dataDir)
+	if !ok {
 		return
 	}
 	status, err := keyStore.Import([]byte(request.PrivateKey))
@@ -52,10 +52,9 @@ func handlePutSSHKey(w http.ResponseWriter, r *http.Request, dataDir string) {
 	writeSSHKey(w, status)
 }
 
-func handleDeleteSSHKey(w http.ResponseWriter, dataDir string) {
-	keyStore, err := sshkey.Open(dataDir)
-	if err != nil {
-		http.Error(w, "open SSH key store", http.StatusInternalServerError)
+func handleDeleteSSHKey(w http.ResponseWriter, r *http.Request, st *store.Store, dataDir string) {
+	keyStore, ok := openDeviceSSHKey(w, r, st, dataDir)
+	if !ok {
 		return
 	}
 	if err := keyStore.Clear(); err != nil {
@@ -63,6 +62,27 @@ func handleDeleteSSHKey(w http.ResponseWriter, dataDir string) {
 		return
 	}
 	writeSSHKey(w, sshkey.Status{})
+}
+
+func openDeviceSSHKey(w http.ResponseWriter, r *http.Request, st *store.Store, dataDir string) (*sshkey.Store, bool) {
+	dongleID := r.PathValue("dongleID")
+	if _, err := st.GetDevice(dongleID); errors.Is(err, sql.ErrNoRows) {
+		http.Error(w, "device not found", http.StatusNotFound)
+		return nil, false
+	} else if err != nil {
+		http.Error(w, "load device", http.StatusInternalServerError)
+		return nil, false
+	}
+	keyStore, err := sshkey.Open(dataDir, dongleID)
+	if errors.Is(err, sshkey.ErrInvalidDongleID) {
+		http.Error(w, "invalid device", http.StatusBadRequest)
+		return nil, false
+	}
+	if err != nil {
+		http.Error(w, "open SSH key store", http.StatusInternalServerError)
+		return nil, false
+	}
+	return keyStore, true
 }
 
 func writeSSHKey(w http.ResponseWriter, status sshkey.Status) {

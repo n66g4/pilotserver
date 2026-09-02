@@ -336,6 +336,53 @@ func TestFailedUploadPreservesExistingFile(t *testing.T) {
 	}
 }
 
+func TestUploadPruneDeletesOldestWhenOverCap(t *testing.T) {
+	dataDir := t.TempDir()
+	st, err := store.Open(dataDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.SetUploadPolicy(store.UploadPolicy{MaxBytes: 20}); err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.Config{DataDir: dataDir, JWTSecret: testSecret}
+	mux := http.NewServeMux()
+	upload.Mount(mux, st, cfg)
+
+	put := func(relPath, body string) {
+		t.Helper()
+		token, err := upload.Sign(testSecret, upload.Claim{
+			DongleID: "d1", RelPath: relPath, Exp: time.Now().Add(time.Hour).Unix(),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(http.MethodPut, "/upload/put/"+token, bytes.NewBufferString(body))
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusCreated {
+			t.Fatalf("PUT %s status = %d, body = %s", relPath, rec.Code, rec.Body.String())
+		}
+	}
+	put("old/0/a.ts", "123456789012")
+	put("new/0/b.ts", "abcdefghijkl")
+
+	if _, err := os.Stat(filepath.Join(dataDir, "uploads", "d1", "old", "0", "a.ts")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatal("expected oldest upload to be pruned")
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "uploads", "d1", "new", "0", "b.ts")); err != nil {
+		t.Fatal(err)
+	}
+	total, err := st.TotalUploadBytes()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 12 {
+		t.Fatalf("total = %d, want 12", total)
+	}
+}
+
 func storeDeviceAndSignJWT(t *testing.T, st *store.Store, dongleID string) string {
 	t.Helper()
 	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)

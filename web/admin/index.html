@@ -8,112 +8,127 @@
   <style>
     :root {
       color-scheme: light;
-      --paper: #f5f1e8;
-      --surface: #fffdf8;
-      --ink: #172125;
-      --muted: #697276;
-      --line: #d8d3c8;
-      --cyan: #087f8c;
-      --warning: #a15c00;
-      --danger: #b42318;
-      --rail: #172125;
+      --paper: #ffffff;
+      --surface: #f4f4f4;
+      --ink: #171a20;
+      --muted: #5c5e62;
+      --line: #eeeeee;
+      --cyan: #3e6ae1;
+      --warning: #5c5e62;
+      --danger: #171a20;
+      --rail: #ffffff;
     }
     * { box-sizing: border-box; }
     html, body { min-height: 100%; }
-    body { margin: 0; color: var(--ink); background: var(--paper); font: 15px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
-    input, button, select { min-height: 40px; padding: 8px 10px; font: inherit; }
+    body { margin: 0; color: var(--ink); background: var(--paper); font: 14px/20px "Universal Sans Text", -apple-system, Arial, sans-serif; }
+    input, button, select, textarea { min-height: 40px; padding: 4px 16px; font: inherit; border-radius: 4px; transition: border-color .33s, background-color .33s, color .33s; }
+    input, select, textarea { color: var(--ink); background: transparent; border: 1px solid #d0d1d2; }
+    input::placeholder, textarea::placeholder { color: #8e8e8e; }
     input[type="checkbox"] { min-width: 40px; }
-    button { cursor: pointer; }
+    button { cursor: pointer; color: #393c41; background: #ffffff; border: 3px solid transparent; font-weight: 500; }
+    button:hover { background: #f4f4f4; }
     button:disabled { cursor: not-allowed; opacity: .45; }
-    button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline: 3px solid #22d3ee; outline-offset: 2px; }
-    h1, h2, p { margin-top: 0; }
+    button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible, textarea:focus-visible { outline: 2px solid #3e6ae1; outline-offset: 2px; }
+    h1, h2, p { margin-top: 0; font-weight: 500; }
+    h1 { font: 500 40px/48px "Universal Sans Display", -apple-system, Arial, sans-serif; }
+    h2 { font-size: 17px; line-height: 20px; }
     table { width: 100%; border-collapse: collapse; }
-    th, td { padding: 12px; border-bottom: 1px solid var(--line); text-align: left; }
-    .online { color: #067647; }
-    .offline, #message, #workspace-status { color: var(--danger); }
+    th, td { padding: 12px; border-bottom: 1px solid var(--line); text-align: left; font-weight: 400; }
+    th { color: var(--muted); font-weight: 500; }
+    .online { color: var(--ink); }
+    .offline, #message, #workspace-status { color: var(--muted); }
     code { user-select: all; }
-    .login-card { width: min(440px, calc(100% - 32px)); margin: 12vh auto; padding: 32px; background: var(--surface); border: 1px solid var(--line); box-shadow: 0 18px 45px #2733371a; }
-    .login-card label { display: grid; gap: 8px; }
-    .login-card button { width: 100%; margin-top: 16px; color: white; background: var(--cyan); border: 0; }
+    a { color: var(--muted); text-decoration: none; transition: color .33s; }
+    a:hover { color: var(--ink); text-decoration: underline; }
+    .login-card { width: min(440px, calc(100% - 32px)); margin: 12vh auto; padding: 32px; background: var(--paper); }
+    .login-card h1 { font-size: 40px; line-height: 48px; font-weight: 500; }
+    .login-card label { display: grid; gap: 8px; color: #393c41; }
+    .login-card button, #refresh, #save-settings, #save-ssh-key, #replay-retry, #replay-entry button {
+      width: 200px; max-width: 100%; color: #ffffff; background: #3e6ae1; border-color: transparent;
+    }
+    .login-card button { width: 100%; margin-top: 16px; }
+    .login-card button:hover, #refresh:hover, #save-settings:hover, #save-ssh-key:hover, #replay-retry:hover, #replay-entry button:hover { background: #3457c4; }
     #app-shell { display: grid; grid-template-columns: 224px minmax(0, 1fr); min-height: 100vh; }
-    #primary-nav { position: sticky; top: 0; height: 100vh; padding: 28px 18px; color: #edf5f4; background: var(--rail); }
-    .brand { margin: 0 10px 34px; font-size: 19px; font-weight: 800; letter-spacing: .08em; }
-    .brand span { color: #55d5df; }
+    #primary-nav { position: sticky; top: 0; height: 100vh; padding: 28px 16px; color: var(--ink); background: var(--rail); }
+    .brand { margin: 0 8px 34px; font-size: 14px; font-weight: 500; letter-spacing: .28em; }
+    .brand span { color: inherit; }
     #primary-nav nav { display: grid; gap: 8px; }
-    #primary-nav nav button { width: 100%; padding-inline: 14px; color: #c4d0d0; background: transparent; border: 1px solid transparent; text-align: left; }
-    #primary-nav nav button:hover { border-color: #496166; }
-    #primary-nav nav button[aria-current="page"] { color: white; background: #26373b; border-color: #4e686e; }
+    #primary-nav nav button { width: 100%; min-height: 32px; padding: 4px 16px; color: var(--ink); background: transparent; border: 0; text-align: left; }
+    #primary-nav nav button:hover { background: #f4f4f4; }
+    #primary-nav nav button[aria-current="page"] { color: var(--ink); background: #f4f4f4; }
     .console { min-width: 0; }
-    .topbar { position: sticky; z-index: 10; top: 0; display: flex; min-height: 64px; padding: 10px clamp(18px, 3vw, 40px); align-items: center; justify-content: flex-end; gap: 12px; background: #fffdf8ee; border-bottom: 1px solid var(--line); backdrop-filter: blur(10px); }
-    .status-pill { display: inline-flex; min-height: 32px; padding: 5px 10px; align-items: center; gap: 7px; color: var(--muted); border: 1px solid var(--line); border-radius: 999px; }
-    .status-pill::before { width: 8px; height: 8px; content: ""; background: #12b76a; border-radius: 50%; }
-    #service-indicator[data-on="false"]::before { background: var(--danger); }
-    #workspace { width: min(100%, 1440px); margin: 0 auto; padding: clamp(24px, 4vw, 56px); }
-    .view-heading { margin-bottom: 24px; font: 700 clamp(25px, 4vw, 38px)/1.1 Georgia, serif; letter-spacing: -.025em; }
-    .panel { padding: clamp(18px, 3vw, 28px); background: var(--surface); border: 1px solid var(--line); box-shadow: 0 8px 22px #2733370d; }
-    .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; margin-bottom: 20px; }
-    .metric { min-height: 126px; padding: 20px; background: var(--surface); border: 1px solid var(--line); }
-    .metric-label { display: block; color: var(--muted); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; }
-    .metric strong { display: block; margin-top: 16px; font: 700 27px/1.1 Georgia, serif; }
-    #recent-routes { margin: 0; padding-left: 20px; }
-    #recent-routes li { padding: 7px 0; }
+    .topbar { position: sticky; z-index: 10; top: 0; display: flex; min-height: 64px; padding: 10px clamp(18px, 3vw, 40px); align-items: center; justify-content: flex-end; gap: 12px; background: rgba(255,255,255,.75); backdrop-filter: blur(16px); }
+    .status-pill { display: inline-flex; min-height: 32px; padding: 4px 16px; align-items: center; gap: 7px; color: var(--muted); background: #f4f4f4; border-radius: 4px; }
+    .status-pill::before { width: 8px; height: 8px; content: ""; background: #3e6ae1; border-radius: 50%; }
+    #service-indicator[data-on="false"]::before { background: #8e8e8e; }
+    #workspace { width: min(100%, 1383px); margin: 0 auto; padding: clamp(24px, 4vw, 56px); }
+    .view-heading { margin-bottom: 24px; font: 500 40px/48px "Universal Sans Display", -apple-system, Arial, sans-serif; }
+    .panel { padding: clamp(16px, 3vw, 24px); background: transparent; }
+    .metric-grid { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px; margin-bottom: 24px; }
+    .metric { min-height: 126px; padding: 20px; background: var(--surface); border-radius: 12px; }
+    .metric-label { display: block; color: var(--muted); font-size: 14px; font-weight: 400; }
+    .metric strong { display: block; margin-top: 16px; font: 500 22px/1.2 "Universal Sans Display", -apple-system, Arial, sans-serif; }
+    #recent-routes { margin: 0; padding-left: 20px; color: #393c41; }
+    #recent-routes li { padding: 8px 0; }
     .view-actions { display: flex; margin-bottom: 16px; justify-content: flex-end; }
-    #file-status { color: var(--danger); }
+    #file-status { color: var(--muted); }
     #file-list a { display: inline-flex; min-height: 40px; align-items: center; }
-    #replay-entry { margin: 16px 0; padding: 14px; border: 2px solid var(--cyan); background: #ecfeff; }
-    #replay-entry button { font-weight: 700; }
-    #replay-view { padding: clamp(16px, 3vw, 32px); color: #d9e4e8; background: #101719; border: 1px solid #33474d; box-shadow: 0 18px 50px #0b111366; }
+    #replay-entry { margin: 16px 0; padding: 16px; background: var(--surface); border-radius: 12px; }
+    #replay-view { padding: clamp(16px, 3vw, 32px); color: #ffffff; background: #171a20; }
     .replay-header, .replay-controls, .replay-meta { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
     .replay-header { justify-content: space-between; margin-bottom: 18px; }
-    .replay-header h2 { margin: 0; color: #f3f7f8; letter-spacing: .02em; }
+    .replay-header h2 { margin: 0; color: #ffffff; font-weight: 500; }
     .replay-controls label { display: flex; align-items: center; gap: 8px; }
-    #replay-view button, #replay-view select { color: #e8f3f5; background: #182428; border: 1px solid #526a72; }
-    #replay-view button:hover { border-color: #22d3ee; }
-    #replay-video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #050708; border: 1px solid #26383e; }
-    .ssh-key-panel { margin-top: 20px; padding-top: 20px; border-top: 1px solid var(--line); }
+    #replay-view button, #replay-view select { color: #ffffff; background: #393c41; border: 3px solid transparent; }
+    #replay-view button:hover { background: #5c5e62; }
+    #replay-video { display: block; width: 100%; aspect-ratio: 16 / 9; background: #000; border-radius: 12px; }
+    .ssh-key-panel { margin-top: 20px; padding-top: 20px; }
     .ssh-key-panel label { display: grid; gap: 6px; }
     #ssh-private-key { width: 100%; min-height: 92px; resize: vertical; }
-    #view-ssh { padding: clamp(16px, 3vw, 32px); color: #d9e4e8; background: #101719; border: 1px solid #33474d; box-shadow: 0 18px 50px #0b111366; }
+    #view-ssh { padding: clamp(16px, 3vw, 32px); color: #ffffff; background: #171a20; }
+    #view-ssh input, #view-ssh textarea { color: #ffffff; border-color: #5c5e62; }
     .ssh-header, .ssh-command { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
     .ssh-header { justify-content: space-between; margin-bottom: 12px; }
-    .ssh-header h1 { margin: 0; color: #f3f7f8; }
-    #view-ssh button { color: #e8f3f5; background: #182428; border: 1px solid #526a72; }
-    #ssh-status { min-height: 24px; color: #fbbf24; }
-    #ssh-terminal { min-height: 480px; padding: 8px; background: #000; }
-    .replay-meta { justify-content: space-between; margin: 14px 0; color: #9eb1b7; }
-    #replay-status { min-height: 24px; color: #fbbf24; }
-    #segment-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(34px, 1fr)); gap: 5px; margin: 14px 0 20px; }
-    #segment-strip button, #segment-strip span { min-width: 0; min-height: 40px; padding: 5px; text-align: center; border: 1px solid #3d555d; }
-    #segment-strip button { color: #67e8f9; }
-    #segment-strip button[aria-current="true"] { color: #081113; background: #22d3ee; border-color: #67e8f9; }
-    #segment-strip button[data-telemetry-error="true"] { color: #fca5a5; border-color: #ef4444; }
-    #segment-strip span { color: #66777c; background: repeating-linear-gradient(135deg, #182226, #182226 5px, #11191c 5px, #11191c 10px); }
-    .map-settings-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 12px 0; }
-    .map-settings-grid label { display: grid; gap: 4px; }
-    .settings-note { margin: 8px 0; color: var(--muted); font-size: 13px; }
-    #map-refresh-note { color: var(--warning); }
-    .telemetry-hud { display: grid; grid-template-columns: minmax(150px, 1.2fr) repeat(2, minmax(110px, 1fr)) minmax(180px, 2fr); gap: 8px; margin: 14px 0; }
-    .hud-cell { min-height: 78px; padding: 12px; background: #0a1215; border: 1px solid #294047; }
-    .hud-label { display: block; color: #718a91; font-size: 11px; letter-spacing: .14em; }
-    #telemetry-speed { color: #f5fbfc; font-size: clamp(28px, 5vw, 48px); line-height: 1; }
-    .hud-unit { color: #789097; }
-    #telemetry-state { color: #67e8f9; font-size: 18px; }
-    .telemetry-badge { display: inline-flex; min-height: 28px; margin: 7px 4px 0 0; padding: 4px 8px; align-items: center; color: #52686e; border: 1px solid #334b52; }
-    .telemetry-badge[data-on="true"] { color: #041310; background: #2dd4bf; border-color: #5eead4; }
-    #telemetry-alert { color: #fbbf24; overflow-wrap: anywhere; }
-    .telemetry-panels { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 12px; }
-    .telemetry-panel { min-width: 0; padding: 10px; background: #0a1215; border: 1px solid #294047; }
-    .telemetry-panel header { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; color: #bdd0d5; }
-    .telemetry-panel header span { color: #70878e; font-size: 12px; }
-    .map-stage { position: relative; height: 280px; overflow: hidden; background: #071013; }
+    .ssh-header h1 { margin: 0; color: #ffffff; font-size: 40px; line-height: 48px; }
+    #view-ssh button { color: #ffffff; background: #393c41; border: 3px solid transparent; }
+    #view-ssh #save-ssh-key { background: #3e6ae1; }
+    #view-ssh #save-ssh-key:hover { background: #3457c4; }
+    #ssh-status { min-height: 24px; color: #8e8e8e; }
+    #ssh-terminal { min-height: 480px; padding: 8px; background: #171a20; }
+    .replay-meta { justify-content: space-between; margin: 14px 0; color: #8e8e8e; }
+    #replay-status { min-height: 24px; color: #8e8e8e; }
+    #segment-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(34px, 1fr)); gap: 8px; margin: 14px 0 20px; }
+    #segment-strip button, #segment-strip span { min-width: 0; min-height: 40px; padding: 5px; text-align: center; border: 0; border-radius: 4px; }
+    #segment-strip button { color: #ffffff; background: #393c41; }
+    #segment-strip button[aria-current="true"] { color: #ffffff; background: #3e6ae1; }
+    #segment-strip button[data-telemetry-error="true"] { color: #ffffff; background: #5c5e62; }
+    #segment-strip span { color: #8e8e8e; background: #393c41; }
+    .map-settings-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin: 12px 0; }
+    .map-settings-grid label { display: grid; gap: 8px; }
+    .settings-note { margin: 8px 0; color: var(--muted); font-size: 14px; }
+    #map-refresh-note { color: var(--muted); }
+    .telemetry-hud { display: grid; grid-template-columns: minmax(150px, 1.2fr) repeat(2, minmax(110px, 1fr)) minmax(180px, 2fr); gap: 16px; margin: 14px 0; }
+    .hud-cell { min-height: 78px; padding: 16px; background: #393c41; border-radius: 12px; }
+    .hud-label { display: block; color: #8e8e8e; font-size: 14px; font-weight: 400; }
+    #telemetry-speed { color: #ffffff; font-size: 40px; line-height: 1.2; font-weight: 500; }
+    .hud-unit { color: #8e8e8e; }
+    #telemetry-state { color: #ffffff; font-size: 17px; font-weight: 500; }
+    .telemetry-badge { display: inline-flex; min-height: 28px; margin: 7px 4px 0 0; padding: 4px 8px; align-items: center; color: #8e8e8e; background: transparent; border-radius: 4px; }
+    .telemetry-badge[data-on="true"] { color: #ffffff; background: #3e6ae1; }
+    #telemetry-alert { color: #ffffff; overflow-wrap: anywhere; }
+    .telemetry-panels { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.25fr); gap: 16px; }
+    .telemetry-panel { min-width: 0; padding: 16px; background: #393c41; border-radius: 12px; }
+    .telemetry-panel header { display: flex; justify-content: space-between; gap: 8px; margin-bottom: 8px; color: #ffffff; }
+    .telemetry-panel header span { color: #8e8e8e; font-size: 14px; }
+    .map-stage { position: relative; height: 280px; overflow: hidden; background: #171a20; border-radius: 12px; }
     #telemetry-map, #telemetry-map-provider, #telemetry-chart { display: block; width: 100%; height: 100%; }
     #telemetry-map-provider { position: absolute; inset: 0; }
     .chart-stage { height: 280px; }
     #telemetry-chart { min-height: 40px; touch-action: none; cursor: crosshair; }
-    #telemetry-chart:focus-visible { outline: 3px solid #22d3ee; outline-offset: 3px; }
+    #telemetry-chart:focus-visible { outline: 2px solid #3e6ae1; outline-offset: 3px; }
     @media (max-width: 760px) {
       #app-shell { display: block; padding-bottom: calc(68px + env(safe-area-inset-bottom)); }
-      #primary-nav { position: fixed; z-index: 20; top: auto; right: 0; bottom: 0; left: 0; width: auto; height: auto; padding: 7px 8px calc(7px + env(safe-area-inset-bottom)); border-top: 1px solid #496166; }
+      #primary-nav { position: fixed; z-index: 20; top: auto; right: 0; bottom: 0; left: 0; width: auto; height: auto; padding: 7px 8px calc(7px + env(safe-area-inset-bottom)); background: rgba(255,255,255,.92); }
       .brand { display: none; }
       #primary-nav nav { grid-template-columns: repeat(4, 1fr); gap: 4px; }
       #primary-nav nav button { padding: 6px 3px; font-size: 12px; text-align: center; }
@@ -121,9 +136,10 @@
       #service-indicator { display: none; }
       #workspace { padding: 22px 14px; }
       .metric-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .view-heading { font-size: 28px; line-height: 34px; }
       #view-devices thead { display: none; }
       #view-devices table, #view-devices tbody, #view-devices tr, #view-devices td { display: block; }
-      #view-devices tr { margin-bottom: 12px; padding: 14px; background: var(--surface); border: 1px solid var(--line); }
+      #view-devices tr { margin-bottom: 12px; padding: 14px; background: var(--surface); border: 0; border-radius: 12px; }
       #view-devices td { padding: 5px 0; border: 0; }
       .replay-header, .replay-controls { align-items: stretch; flex-direction: column; }
       .replay-controls label { justify-content: space-between; }
@@ -210,17 +226,22 @@
               </div>
               <p class="settings-note" data-i18n="settings.mapNote">Map keys are sent to the browser; restrict allowed domains in your map provider console.</p>
               <p id="map-refresh-note" hidden data-i18n="settings.mapRefreshNote">Refresh the page to apply a new map key</p>
+              <section class="ssh-key-panel">
+                <h2 data-i18n="settings.uploadTitle">Upload disk</h2>
+                <p data-i18n="settings.uploadHelp">0 means no limit. After each upload, files older than the retention days are deleted first, then oldest files until usage is under the cap. The file just uploaded is kept.</p>
+                <p id="upload-used" aria-live="polite"></p>
+                <div><label><span data-i18n="settings.uploadMaxGB">Max size (GB)</span> <input id="upload-max-gb" type="number" min="0" step="1" value="0" style="width:8rem"></label></div>
+                <div><label><span data-i18n="settings.uploadRetentionDays">Retention (days)</span> <input id="upload-retention-days" type="number" min="0" max="3650" step="1" value="0" style="width:8rem"></label></div>
+              </section>
+              <section class="ssh-key-panel">
+                <h2 data-i18n="settings.sshAuditTitle">SSH audit</h2>
+                <table>
+                  <thead><tr><th data-i18n="settings.sshAuditTime">Time</th><th data-i18n="devices.dongleId">dongle_id</th><th data-i18n="settings.sshAuditAction">Action</th><th data-i18n="settings.sshAuditPort">Port</th></tr></thead>
+                  <tbody id="ssh-audit-list"></tbody>
+                </table>
+              </section>
               <button id="save-settings" type="button" data-i18n="settings.save">Save</button>
               <span id="settings-status"></span>
-              <section class="ssh-key-panel">
-                <h2 data-i18n="settings.sshKeyTitle">SSH key</h2>
-                <p data-i18n="settings.sshKeyHelp">The car only needs a GitHub username with SSH enabled. Paste the OpenSSH private key whose public key is on GitHub. The private key stays on the NAS and is never shown again.</p>
-                <p id="ssh-key-state" aria-live="polite"></p>
-                <label><span data-i18n="settings.sshPrivateKey">Private key</span><textarea id="ssh-private-key" spellcheck="false" autocomplete="off"></textarea></label>
-                <button id="save-ssh-key" type="button" data-i18n="settings.saveSSHKey">Save key</button>
-                <button id="clear-ssh-key" type="button" data-i18n="settings.clearSSHKey">Clear key</button>
-                <span id="ssh-key-status" aria-live="polite"></span>
-              </section>
             </div>
           </section>
           <section id="view-ssh" hidden aria-labelledby="ssh-title">
@@ -228,6 +249,15 @@
               <h1 id="ssh-title" tabindex="-1" data-i18n="ssh.title">SSH terminal</h1>
               <button id="close-ssh" type="button" data-i18n="ssh.close">Close</button>
             </header>
+            <section class="ssh-key-panel">
+              <h2 data-i18n="settings.sshKeyTitle">SSH key</h2>
+              <p data-i18n="settings.sshKeyHelp">Paste the OpenSSH private key trusted by this car. The private key stays on the NAS and is never shown again.</p>
+              <p id="ssh-key-state" aria-live="polite"></p>
+              <label><span data-i18n="settings.sshPrivateKey">Private key</span><textarea id="ssh-private-key" spellcheck="false" autocomplete="off"></textarea></label>
+              <button id="save-ssh-key" type="button" data-i18n="settings.saveSSHKey">Save key</button>
+              <button id="clear-ssh-key" type="button" data-i18n="settings.clearSSHKey">Clear key</button>
+              <span id="ssh-key-status" aria-live="polite"></span>
+            </section>
             <p id="ssh-status" aria-live="polite" data-i18n="ssh.connecting">Connecting…</p>
             <div id="ssh-command-row" class="ssh-command" hidden>
               <code id="ssh-command"></code>
@@ -349,6 +379,7 @@
     let failedReplaySegment = null;
     let sshSocket = null;
     let sshTerminal = null;
+    let sshKeyDongleID = "";
     let sshKeyInfo = {configured: false, fingerprint: ""};
     const telemetry = window.PilotTelemetry.create({
       video: replayVideo,
@@ -424,7 +455,11 @@
       document.querySelector("#map-provider").value = "none";
       document.querySelector("#map-web-key").value = "";
       document.querySelector("#map-security-code").value = "";
+      document.querySelector("#upload-max-gb").value = "0";
+      document.querySelector("#upload-retention-days").value = "0";
+      document.querySelector("#ssh-audit-list").replaceChildren();
       document.querySelector("#ssh-private-key").value = "";
+      sshKeyDongleID = "";
       sshKeyInfo = {configured: false, fingerprint: ""};
       renderSSHKeyState();
       document.querySelector("#map-security-code-field").hidden = true;
@@ -462,6 +497,8 @@
       if (view === "overview") {
         renderOverview();
         loadOverviewRoutes();
+      } else if (view === "settings") {
+        loadSSHAudit();
       }
       const heading = target.querySelector('h1[tabindex="-1"]') || target.querySelector('[tabindex="-1"]');
       if (heading) heading.focus();
@@ -610,37 +647,36 @@
     }
 
     async function loadSettings() {
-      const [settingsResult, sshKeyResult] = await Promise.allSettled([
-        api("/admin/api/settings"),
-        api("/admin/api/ssh-key")
-      ]);
-      if (settingsResult.status === "fulfilled") {
-        const settings = settingsResult.value;
+      try {
+        const settings = await api("/admin/api/settings");
         currentSettings = settings;
         document.querySelector("#public-base-url").value = settings.public_base_url || "";
         document.querySelector("#listen-addr").value = settings.listen_addr || "127.0.0.1:18780";
         document.querySelector("#allow-lan").checked = !!settings.allow_lan;
         applyMapSettings(settings);
+        applyUploadSettings(settings);
         setLocalizedText(
           document.querySelector("#settings-status"),
           settings.configured ? "settings.configured" : "settings.notConfigured"
         );
         renderOverview();
-      } else {
-        if (settingsResult.reason === staleSession) return;
-        setLocalizedError(document.querySelector("#settings-status"), settingsResult.reason, "settings.readFailed");
+      } catch (error) {
+        if (error === staleSession) return;
+        setLocalizedError(document.querySelector("#settings-status"), error, "settings.readFailed");
       }
+    }
 
-      if (sshKeyResult.status === "fulfilled") {
-        const sshKey = sshKeyResult.value;
+    async function loadSSHKey(dongleID) {
+      sshKeyDongleID = dongleID;
+      try {
+        const sshKey = await api(`/admin/api/devices/${encodeURIComponent(dongleID)}/ssh-key`);
         sshKeyInfo = {
           configured: !!sshKey.configured,
           fingerprint: sshKey.fingerprint || ""
         };
         renderSSHKeyState();
         clearLocalizedText(document.querySelector("#ssh-key-status"));
-      } else {
-        const error = sshKeyResult.reason;
+      } catch (error) {
         if (error === staleSession) return;
         if (error && error.code === "http_500") {
           sshKeyInfo = {configured: false, fingerprint: "", corrupt: true};
@@ -661,6 +697,54 @@
       document.querySelector("#map-web-key").value = mapSettings.map_web_key;
       document.querySelector("#map-security-code").value = mapSettings.map_security_code;
       document.querySelector("#map-security-code-field").hidden = mapSettings.map_provider !== "amap";
+    }
+
+    function applyUploadSettings(settings) {
+      const gib = 1024 * 1024 * 1024;
+      document.querySelector("#upload-max-gb").value = String(Math.round((settings.upload_max_bytes || 0) / gib) || 0);
+      document.querySelector("#upload-retention-days").value = String(settings.upload_retention_days || 0);
+      setLocalizedText(
+        document.querySelector("#upload-used"),
+        "settings.uploadUsed",
+        {used: ((settings.upload_used_bytes || 0) / gib).toFixed(2)}
+      );
+    }
+
+    async function loadSSHAudit() {
+      const list = document.querySelector("#ssh-audit-list");
+      try {
+        const entries = await api("/admin/api/ssh-audit");
+        if (!entries || !entries.length) {
+          const row = document.createElement("tr");
+          const cell = document.createElement("td");
+          cell.colSpan = 4;
+          setLocalizedText(cell, "settings.sshAuditEmpty");
+          row.append(cell);
+          list.replaceChildren(row);
+          return;
+        }
+        list.replaceChildren(...entries.map((entry) => {
+          const row = document.createElement("tr");
+          const time = document.createElement("td");
+          time.textContent = new Date((entry.created_at || 0) * 1000).toLocaleString();
+          const dongle = document.createElement("td");
+          dongle.textContent = entry.dongle_id || "";
+          const action = document.createElement("td");
+          setLocalizedText(action, entry.action === "pty" ? "settings.sshAuditPty" : "settings.sshAuditTunnel");
+          const port = document.createElement("td");
+          port.textContent = String(entry.port || "");
+          row.append(time, dongle, action, port);
+          return row;
+        }));
+      } catch (error) {
+        if (error === staleSession) return;
+        const row = document.createElement("tr");
+        const cell = document.createElement("td");
+        cell.colSpan = 4;
+        setLocalizedError(cell, error, "settings.readFailed");
+        row.append(cell);
+        list.replaceChildren(row);
+      }
     }
 
     function reconcileDevices(devices) {
@@ -769,9 +853,10 @@
       document.querySelector("#ssh-terminal").replaceChildren();
     }
 
-    function openSSHDevice(device) {
+    async function openSSHDevice(device) {
       closeSSH();
       setView("ssh");
+      await loadSSHKey(device.dongle_id);
       const status = document.querySelector("#ssh-status");
       const commandRow = document.querySelector("#ssh-command-row");
       commandRow.hidden = true;
@@ -781,7 +866,7 @@
       sshTerminal = new Terminal({
         cursorBlink: true,
         convertEol: true,
-        theme: {background: "#000000"}
+        theme: {background: "#171A20", foreground: "#FFFFFF", cursor: "#3E6AE1"}
       });
       sshTerminal.open(document.querySelector("#ssh-terminal"));
       sshTerminal.focus();
@@ -1356,7 +1441,9 @@
             allow_lan: document.querySelector("#allow-lan").checked,
             map_provider: document.querySelector("#map-provider").value,
             map_web_key: document.querySelector("#map-web-key").value,
-            map_security_code: document.querySelector("#map-security-code").value
+            map_security_code: document.querySelector("#map-security-code").value,
+            upload_max_bytes: Math.max(0, Number(document.querySelector("#upload-max-gb").value) || 0) * (1024 * 1024 * 1024),
+            upload_retention_days: Math.max(0, Number(document.querySelector("#upload-retention-days").value) || 0)
           })
         });
         document.querySelector("#public-base-url").value = settings.public_base_url || "";
@@ -1364,6 +1451,7 @@
         document.querySelector("#allow-lan").checked = !!settings.allow_lan;
         currentSettings = settings;
         applyMapSettings(settings);
+        applyUploadSettings(settings);
         document.querySelector("#map-refresh-note").hidden =
           previousMapConfig === JSON.stringify(mapSettings) || !telemetry.hasLoadedMapSDK();
         setLocalizedText(
@@ -1382,7 +1470,8 @@
       button.disabled = true;
       const status = document.querySelector("#ssh-key-status");
       try {
-        const result = await api("/admin/api/ssh-key", {method: "PUT",
+        if (!sshKeyDongleID) return;
+        const result = await api(`/admin/api/devices/${encodeURIComponent(sshKeyDongleID)}/ssh-key`, {method: "PUT",
           body: JSON.stringify({private_key: document.querySelector("#ssh-private-key").value})
         });
         sshKeyInfo = {
@@ -1407,7 +1496,8 @@
       if (!confirm(i18n.t("settings.clearSSHKeyConfirm"))) return;
       const status = document.querySelector("#ssh-key-status");
       try {
-        await api("/admin/api/ssh-key", {method: "DELETE"});
+        if (!sshKeyDongleID) return;
+        await api(`/admin/api/devices/${encodeURIComponent(sshKeyDongleID)}/ssh-key`, {method: "DELETE"});
         sshKeyInfo = {configured: false, fingerprint: ""};
         document.querySelector("#ssh-private-key").value = "";
         renderSSHKeyState();

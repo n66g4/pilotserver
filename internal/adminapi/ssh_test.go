@@ -83,6 +83,13 @@ func TestOpenSSHReturnsPublicEndpoint(t *testing.T) {
 	if response.Host != "op.example.com" || response.Port < 42100 || response.Port > 42199 || response.ExpiresIn != 600 {
 		t.Fatalf("response = %+v", response)
 	}
+	entries, err := st.ListSSHAudit(10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].DongleID != "d1" || entries[0].Action != "tunnel" || entries[0].Port != response.Port {
+		t.Fatalf("audit = %+v", entries)
+	}
 }
 
 func TestOpenSSHFailsOnDeviceRPCError(t *testing.T) {

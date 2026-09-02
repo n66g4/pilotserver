@@ -250,6 +250,9 @@ func TestAdminHTMLContainsUnifiedShell(t *testing.T) {
 		`id="view-devices"`,
 		`id="view-routes"`,
 		`id="view-settings"`,
+		`id="upload-max-gb"`,
+		`id="ssh-audit-list"`,
+		`api("/admin/api/ssh-audit")`,
 		`id="replay-view"`,
 		`id="language-toggle"`,
 		`aria-current="page"`,
@@ -628,8 +631,10 @@ func TestAdminHTMLContainsSSHKeyAndTerminalHooks(t *testing.T) {
 		`src="/admin/vendor/xterm.min.js"`,
 		`/admin/api/devices/${encodeURIComponent(device.dongle_id)}/ssh/pty?access_token=`,
 		`key_unconfigured: "ssh.keyUnconfigured"`,
-		`api("/admin/api/ssh-key", {method: "PUT"`,
-		`api("/admin/api/ssh-key", {method: "DELETE"`,
+		`await loadSSHKey(device.dongle_id)`,
+		"/admin/api/devices/${encodeURIComponent(sshKeyDongleID)}/ssh-key",
+		`{method: "PUT"`,
+		`{method: "DELETE"`,
 	} {
 		if !strings.Contains(html, want) {
 			t.Errorf("admin HTML does not contain SSH hook %q", want)
@@ -642,23 +647,18 @@ func TestAdminHTMLContainsSSHKeyAndTerminalHooks(t *testing.T) {
 	}
 }
 
-func TestAdminHTMLLoadsSettingsWhenSSHKeyLoadFails(t *testing.T) {
+func TestAdminHTMLLoadsSettingsWithoutSSHKey(t *testing.T) {
 	html := adminInlineHTML(t)
-	loadSettings := adminFunction(t, html, "async function loadSettings()", "\n    function applyMapSettings")
-	for _, want := range []string{
-		`Promise.allSettled([`,
-		`api("/admin/api/settings")`,
-		`api("/admin/api/ssh-key")`,
-	} {
-		if !strings.Contains(loadSettings, want) {
-			t.Errorf("loadSettings does not contain independent settings hook %q", want)
-		}
+	loadSettings := adminFunction(t, html, "async function loadSettings()", "\n    async function loadSSHKey")
+	if strings.Contains(loadSettings, "ssh-key") {
+		t.Error("loadSettings must not load an SSH key")
+	}
+	loadSSHKey := adminFunction(t, html, "async function loadSSHKey(", "\n    function applyMapSettings")
+	if !strings.Contains(loadSSHKey, "`/admin/api/devices/${encodeURIComponent(dongleID)}/ssh-key`") {
+		t.Error("loadSSHKey must request the device SSH key")
 	}
 	if !strings.Contains(html, `settings.sshKeyCorrupt`) {
 		t.Error("admin HTML does not contain the corrupt SSH key status")
-	}
-	if strings.Contains(loadSettings, "Promise.all([") {
-		t.Error("loadSettings must not gate settings on SSH key success")
 	}
 }
 
@@ -703,8 +703,8 @@ func TestAdminHTMLLanguageSwitchPreservesTerminalSession(t *testing.T) {
 
 func TestAdminHTMLReportsRemoteSSHCloseWithoutFlashingOnLocalClose(t *testing.T) {
 	html := adminInlineHTML(t)
-	closeSSH := adminFunction(t, html, "function closeSSH()", "\n    function openSSHDevice")
-	openSSH := adminFunction(t, html, "function openSSHDevice", "\n    function renderDevice")
+	closeSSH := adminFunction(t, html, "function closeSSH()", "\n    async function openSSHDevice")
+	openSSH := adminFunction(t, html, "async function openSSHDevice", "\n    function renderDevice")
 	if strings.Index(closeSSH, `sshSocket = null;`) > strings.Index(closeSSH, `socket.close();`) {
 		t.Error("closeSSH must clear sshSocket before closing the WebSocket")
 	}
@@ -729,7 +729,7 @@ func TestAdminHTMLDisablesSSHKeySaveUntilRequestFinishes(t *testing.T) {
 		`document.querySelector("#save-ssh-key").addEventListener`,
 		`document.querySelector("#clear-ssh-key").addEventListener`)
 	disabled := strings.Index(handler, `button.disabled = true;`)
-	request := strings.Index(handler, `api("/admin/api/ssh-key", {method: "PUT"`)
+	request := strings.Index(handler, "`/admin/api/devices/${encodeURIComponent(sshKeyDongleID)}/ssh-key`")
 	finally := strings.Index(handler, `} finally {`)
 	enabled := strings.Index(handler, `button.disabled = false;`)
 	if disabled < 0 || request < 0 || disabled > request {

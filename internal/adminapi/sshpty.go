@@ -16,6 +16,7 @@ import (
 	"pilotserver/internal/publicbase"
 	"pilotserver/internal/sshkey"
 	"pilotserver/internal/sshsession"
+	"pilotserver/internal/store"
 )
 
 var openDeviceTunnel = defaultOpenDeviceTunnel
@@ -28,7 +29,7 @@ func defaultOpenDeviceTunnel(ctx context.Context, hub *athena.Hub, dongleID stri
 	return net.JoinHostPort("127.0.0.1", strconv.Itoa(port)), port, cancel, nil
 }
 
-func handleSSHPty(w http.ResponseWriter, r *http.Request, hub *athena.Hub, baseURL *publicbase.Resolver, dataDir string) {
+func handleSSHPty(w http.ResponseWriter, r *http.Request, hub *athena.Hub, baseURL *publicbase.Resolver, dataDir string, st *store.Store) {
 	conn, err := websocket.Accept(w, r, nil)
 	if err != nil {
 		return
@@ -60,7 +61,7 @@ func handleSSHPty(w http.ResponseWriter, r *http.Request, hub *athena.Hub, baseU
 		return
 	}
 
-	keyStore, err := sshkey.Open(dataDir)
+	keyStore, err := sshkey.Open(dataDir, r.PathValue("dongleID"))
 	if err != nil {
 		writeSSHPtyError(r.Context(), conn, "tunnel_failed")
 		return
@@ -87,6 +88,7 @@ func handleSSHPty(w http.ResponseWriter, r *http.Request, hub *athena.Hub, baseU
 	if cancelTunnel != nil {
 		defer cancelTunnel()
 	}
+	recordSSHAudit(st, r.PathValue("dongleID"), "pty", port)
 
 	session, err := sshsession.Connect(r.Context(), addr, signer, size.Cols, size.Rows)
 	if errors.Is(err, sshsession.ErrAuthFailed) {

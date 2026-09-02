@@ -35,28 +35,17 @@ fork 侧需保证 uploader 请求的 API 基址与 `API_HOST` 一致；服务端
 
 在 fork 中搜索 uploader / `upload_url` 相关读取处，确认无硬编码官方域名。
 
-## OTA
+## 软件更新（Git updater）
 
-pilotserver 路由：
+车上用 Git updater，把 fork 的 Git remote 指到你能访问的仓库即可。pilotserver **不**提供 Git 协议，也 **不**要求设备走 `/ota/`。
 
-- `GET /ota/{channel}/version` — 版本元数据（`version.json`）
-- `GET /ota/files/...` — 产物下载
-
-fork 侧 updater / release 检查入口应指向 `https://op.example.com/ota/...`。`version.json` 内 `download_url` 建议使用同一公网域名。详见 [ota.md](ota.md)。
-
-大文件可选由 Nginx 静态 `alias` 托管 `{DataDir}/ota/files/`，元数据仍走 Go。
-
-### fork 必须修改 updater 或 Git remote
-
-phase-1 OTA HTTP 只提供 JSON 元数据和静态产物，不实现 Git 协议。若 fork 的 updater
-仍通过 Git 更新，应把 remote 指向自行托管的 Git 仓库；若要使用上述 HTTP 接口，则
-必须在 fork 中修改 updater 的检查和下载逻辑。未做任一项时，只能人工下载产物。
+遗留的 HTTP 接口见 [ota.md](ota.md)，第一期不用。
 
 ## 可选桩接口（第一期）
 
 | 变量 | 说明 |
 |------|------|
-| `MAPS_HOST` | 指向本域 `/v1/maps/` 或 `/maps/` 桩；或保持兼容空响应 |
+| `MAPS_HOST` | 指向本域 `/v1/maps/` 或 `/maps/` 桩即可；空 JSON，不做导航算路（openpilot 已删除 NOO） |
 
 billing / prime 相关请求已由 pilotserver 桩返回有效订阅，一般无需改 fork，除非 fork 硬编码了不可达域名。
 
@@ -77,4 +66,4 @@ export API_HOST="https://op.example.com"
 export ATHENA_HOST="wss://op.example.com"
 ```
 
-重启相关服务后验证配对、Athena 在线、上传与 OTA，再固化为 fork 默认值。
+重启相关服务后验证配对、Athena 在线与上传，再固化为 fork 默认值。

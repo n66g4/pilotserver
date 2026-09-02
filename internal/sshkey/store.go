@@ -19,21 +19,42 @@ type Status struct {
 }
 
 var ErrInvalidKey = errors.New("invalid SSH private key")
+var ErrInvalidDongleID = errors.New("invalid dongle id")
 
 var fileMu sync.Mutex
 
-func Open(dataDir string) (*Store, error) {
+func Open(dataDir, dongleID string) (*Store, error) {
+	if !validDongleID(dongleID) {
+		return nil, ErrInvalidDongleID
+	}
 	fileMu.Lock()
 	defer fileMu.Unlock()
 
-	dir := filepath.Join(dataDir, "ssh")
+	root := filepath.Join(dataDir, "ssh")
+	dir := filepath.Join(root, dongleID)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return nil, err
+	}
+	if err := os.Chmod(root, 0o700); err != nil {
 		return nil, err
 	}
 	if err := ensurePermissions(dir); err != nil {
 		return nil, err
 	}
 	return &Store{dir: dir}, nil
+}
+
+func validDongleID(id string) bool {
+	if id == "" || len(id) > 64 {
+		return false
+	}
+	for _, c := range id {
+		if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-' {
+			continue
+		}
+		return false
+	}
+	return true
 }
 
 func (s *Store) Status() (Status, error) {

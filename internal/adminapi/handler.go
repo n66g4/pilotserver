@@ -28,23 +28,26 @@ func Mount(mux *http.ServeMux, st *store.Store, hub *athena.Hub, cfg config.Conf
 	adminMux.HandleFunc("PUT /admin/api/settings", func(w http.ResponseWriter, r *http.Request) {
 		handlePutSettings(w, r, st, baseURL, listen)
 	})
+	adminMux.HandleFunc("GET /admin/api/ssh-audit", func(w http.ResponseWriter, _ *http.Request) {
+		handleListSSHAudit(w, st)
+	})
 	adminMux.HandleFunc("GET /admin/api/devices", func(w http.ResponseWriter, _ *http.Request) {
 		handleDevices(w, st, hub)
 	})
 	adminMux.HandleFunc("POST /admin/api/devices/{dongleID}/ssh", func(w http.ResponseWriter, r *http.Request) {
-		handleOpenSSH(w, r, hub, baseURL)
+		handleOpenSSH(w, r, hub, baseURL, st)
 	})
 	adminMux.HandleFunc("GET /admin/api/devices/{dongleID}/ssh/pty", func(w http.ResponseWriter, r *http.Request) {
-		handleSSHPty(w, r, hub, baseURL, cfg.DataDir)
+		handleSSHPty(w, r, hub, baseURL, cfg.DataDir, st)
 	})
-	adminMux.HandleFunc("GET /admin/api/ssh-key", func(w http.ResponseWriter, r *http.Request) {
-		handleGetSSHKey(w, cfg.DataDir)
+	adminMux.HandleFunc("GET /admin/api/devices/{dongleID}/ssh-key", func(w http.ResponseWriter, r *http.Request) {
+		handleGetSSHKey(w, r, st, cfg.DataDir)
 	})
-	adminMux.HandleFunc("PUT /admin/api/ssh-key", func(w http.ResponseWriter, r *http.Request) {
-		handlePutSSHKey(w, r, cfg.DataDir)
+	adminMux.HandleFunc("PUT /admin/api/devices/{dongleID}/ssh-key", func(w http.ResponseWriter, r *http.Request) {
+		handlePutSSHKey(w, r, st, cfg.DataDir)
 	})
-	adminMux.HandleFunc("DELETE /admin/api/ssh-key", func(w http.ResponseWriter, r *http.Request) {
-		handleDeleteSSHKey(w, cfg.DataDir)
+	adminMux.HandleFunc("DELETE /admin/api/devices/{dongleID}/ssh-key", func(w http.ResponseWriter, r *http.Request) {
+		handleDeleteSSHKey(w, r, st, cfg.DataDir)
 	})
 	adminMux.HandleFunc("GET /admin/api/devices/{dongleID}/routes", func(w http.ResponseWriter, r *http.Request) {
 		handleRoutes(w, r, st)

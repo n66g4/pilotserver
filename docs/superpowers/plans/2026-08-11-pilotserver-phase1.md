@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** 在本仓库落地可部署的 Go 单体 `pilotserver`：设备配对、Athena 在线、外网 SSH 隧道、签名上传、OTA、billing/maps 桩、极简管理端，并配合已有 Nginx 暴露。
+**Goal:** 在本仓库落地可部署的 Go 单体 `pilotserver`：设备配对、Athena 在线、外网 SSH 隧道、签名上传、billing/maps 桩、极简管理端，并配合已有 Nginx 暴露。设备软件更新走 Git updater，不在本服务做自动 OTA。
 
 **Architecture:** 单一 Go 进程监听 `127.0.0.1:8080`；SQLite + 本地目录持久化；设备经 fork 默认 URL 接入；SSH 经 Athena `startLocalProxy` + 短时 TCP 端口。
 
@@ -16,7 +16,7 @@
 - 个人规模 1–5 台；单管理员；地图/billing 仅桩。
 - 每次完成可编译任务后必须执行：`go build -o bin/pilotserver ./cmd/pilotserver`（用户规则）。
 - 协议字段以 DragonPilot fork 为准；本计划先实现可联调的兼容子集，路径可用配置覆盖。
-- YAGNI：不做多租户、不做对象存储、不做官方手机 App。
+- YAGNI：不做多租户、不做对象存储、不做官方手机 App、不做设备自动 HTTP OTA。
 
 ## File Structure
 
@@ -611,7 +611,9 @@ git commit -am "feat: add signed upload URLs and route listing"
 
 ---
 
-### Task 9: OTA 元数据与产物
+### Task 9: OTA 元数据与产物（遗留，非第一期成功标准）
+
+设备自动更新已改为 Git updater，本 Task 留下的 HTTP 接口不再计入第一期验收。
 
 **Files:**
 - Create: `internal/ota/handler.go`
@@ -649,7 +651,7 @@ git commit -am "feat: add OTA version endpoint and file serving"
 
 **Interfaces:**
 - billing：凡订阅相关路径返回「有效 Prime」最小 JSON（对照 fork 请求路径，未知路径可挂通配返回 `{"is_prime":true}`）
-- maps：`GET` 导航相关返回 `{}` 或 204，保证不 5xx
+- maps：`GET` 返回 `{}`，保证不 5xx；不是导航后端，也不再后续补全。
 
 - [ ] **Step 1–4: 测试 + 实现 + 编译**
 
@@ -693,12 +695,12 @@ git commit -am "feat: add minimal admin web UI"
 
 ---
 
-### Task 12: Nginx 示例 + Fork URL 说明 + Cabana 占位
+### Task 12: Nginx 示例 + Fork URL 说明 + Cabana 不集成说明
 
 **Files:**
 - Create: `deploy/nginx.example.conf`
 - Create: `docs/dragonpilot-fork-urls.md`
-- Create: `web/cabana/README.md`（说明后续拷贝开源 Cabana 静态资源；第一期可不集成完整回放）
+- Create: `web/cabana/README.md`（说明不集成 Cabana；CAN/DBC 用本机 Qt Cabana）
 
 **nginx.example.conf 必须包含：**
 - `proxy_pass http://127.0.0.1:8080`
@@ -735,21 +737,20 @@ git commit -am "docs: add nginx example and dragonpilot URL patch guide"
 | Athena 在线 | 5 |
 | 外网 SSH 隧道 | 6, 12（Nginx 端口） |
 | 上传 + 列表下载 | 8 |
-| OTA | 9 |
 | 无设备额外二进制 | 12 文档 |
 | billing/maps 桩 | 10 |
 | 复用已有 Nginx、Go 内网 | 1, 12 |
-| Cabana 复用 | 12 占位（完整回放可二期） |
+| Cabana | 12 说明不集成 |
 
 ## 后续计划（本文件不展开）
 
-- **Plan 2：** 完整 Cabana 粘合、行程播放、上传保留策略  
-- **Plan 3：** 对照具体 DragonPilot 版本做契约测试抓包对齐、差分 OTA  
+- 无既定 Plan 2。Cabana、设备自动 HTTP OTA、车上导航地图后端均明确不在本服务范围。  
 
 ---
 
 ## Self-Review Notes
 
-- 已覆盖规格第一期成功标准；Cabana 完整回放显式放到后续，避免阻塞 SSH/上传/OTA。  
+- 已覆盖规格第一期成功标准；设备自动 HTTP OTA、Cabana 集成、车上导航地图后端均不在本服务范围。  
+- Task 9 的 `/ota/` 接口为遗留实现，不作为第一期成功标准。  
 - SSH 桥接以 `athenad.startLocalProxy` + `/ws/proxy/{ticket}` 为准，实现时必须打开 fork 源码核对参数形状。  
 - 无 TBD 占位；路径差异通过 `internal/api/paths.go` 集中调整。

@@ -30,13 +30,16 @@ func TestAdminSSHKeyImportClearAndNeverExposesPrivateKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
+	if err := st.UpsertDevice(store.Device{DongleID: "d1", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
 
 	mux := http.NewServeMux()
 	cfg := config.Config{JWTSecret: adminTestSecret, DataDir: dataDir}
 	mountAdmin(t, mux, st, athena.NewHub(), cfg, "")
 
 	unauthorized := httptest.NewRecorder()
-	mux.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/admin/api/ssh-key", nil))
+	mux.ServeHTTP(unauthorized, httptest.NewRequest(http.MethodGet, "/admin/api/devices/d1/ssh-key", nil))
 	if unauthorized.Code != http.StatusUnauthorized {
 		t.Fatalf("unauthorized status = %d, want %d", unauthorized.Code, http.StatusUnauthorized)
 	}
@@ -48,7 +51,7 @@ func TestAdminSSHKeyImportClearAndNeverExposesPrivateKey(t *testing.T) {
 	queryAuthorized := httptest.NewRecorder()
 	mux.ServeHTTP(queryAuthorized, httptest.NewRequest(
 		http.MethodGet,
-		"/admin/api/ssh-key?access_token="+url.QueryEscape(token),
+		"/admin/api/devices/d1/ssh-key?access_token="+url.QueryEscape(token),
 		nil,
 	))
 	if queryAuthorized.Code != http.StatusOK {
@@ -89,7 +92,7 @@ func TestAdminSSHKeyImportClearAndNeverExposesPrivateKey(t *testing.T) {
 		return response
 	}
 
-	status, body := request(http.MethodGet, "/admin/api/ssh-key", nil)
+	status, body := request(http.MethodGet, "/admin/api/devices/d1/ssh-key", nil)
 	if status != http.StatusOK {
 		t.Fatalf("GET empty status = %d, body = %s", status, body)
 	}
@@ -103,7 +106,7 @@ func TestAdminSSHKeyImportClearAndNeverExposesPrivateKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	status, body = request(http.MethodPut, "/admin/api/ssh-key", putBody)
+	status, body = request(http.MethodPut, "/admin/api/devices/d1/ssh-key", putBody)
 	if status != http.StatusOK {
 		t.Fatalf("PUT status = %d, body = %s", status, body)
 	}
@@ -112,7 +115,7 @@ func TestAdminSSHKeyImportClearAndNeverExposesPrivateKey(t *testing.T) {
 		t.Fatalf("PUT response = %+v, want %q", got, fingerprint)
 	}
 
-	status, body = request(http.MethodGet, "/admin/api/ssh-key", nil)
+	status, body = request(http.MethodGet, "/admin/api/devices/d1/ssh-key", nil)
 	if status != http.StatusOK {
 		t.Fatal(body)
 	}
@@ -121,17 +124,25 @@ func TestAdminSSHKeyImportClearAndNeverExposesPrivateKey(t *testing.T) {
 		t.Fatalf("GET after PUT = %+v", got)
 	}
 
-	status, body = request(http.MethodPut, "/admin/api/ssh-key", []byte(`{"private_key":"not-a-key"}`))
+	missing := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/admin/api/devices/missing/ssh-key", nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	mux.ServeHTTP(missing, req)
+	if missing.Code != http.StatusNotFound {
+		t.Fatalf("missing device status = %d, want %d", missing.Code, http.StatusNotFound)
+	}
+
+	status, body = request(http.MethodPut, "/admin/api/devices/d1/ssh-key", []byte(`{"private_key":"not-a-key"}`))
 	if status != http.StatusBadRequest {
 		t.Fatalf("invalid PUT status = %d, body = %s", status, body)
 	}
-	status, body = request(http.MethodGet, "/admin/api/ssh-key", nil)
+	status, body = request(http.MethodGet, "/admin/api/devices/d1/ssh-key", nil)
 	got = decode(body)
 	if got.Fingerprint != fingerprint {
 		t.Fatal("invalid PUT overwrote the key")
 	}
 
-	status, body = request(http.MethodDelete, "/admin/api/ssh-key", nil)
+	status, body = request(http.MethodDelete, "/admin/api/devices/d1/ssh-key", nil)
 	if status != http.StatusOK {
 		t.Fatalf("DELETE status = %d, body = %s", status, body)
 	}
@@ -139,7 +150,7 @@ func TestAdminSSHKeyImportClearAndNeverExposesPrivateKey(t *testing.T) {
 	if got.Configured {
 		t.Fatal("still configured after DELETE")
 	}
-	status, body = request(http.MethodDelete, "/admin/api/ssh-key", nil)
+	status, body = request(http.MethodDelete, "/admin/api/devices/d1/ssh-key", nil)
 	if status != http.StatusOK {
 		t.Fatalf("second DELETE status = %d, body = %s", status, body)
 	}
@@ -152,8 +163,11 @@ func TestAdminSSHKeyGetReturns500ForCorruptStoredKey(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer st.Close()
+	if err := st.UpsertDevice(store.Device{DongleID: "d1", CreatedAt: 1}); err != nil {
+		t.Fatal(err)
+	}
 
-	keyDir := filepath.Join(dataDir, "ssh")
+	keyDir := filepath.Join(dataDir, "ssh", "d1")
 	if err := os.MkdirAll(keyDir, 0o700); err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +184,7 @@ func TestAdminSSHKeyGetReturns500ForCorruptStoredKey(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	req := httptest.NewRequest(http.MethodGet, "/admin/api/ssh-key", nil)
+	req := httptest.NewRequest(http.MethodGet, "/admin/api/devices/d1/ssh-key", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
